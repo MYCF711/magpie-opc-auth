@@ -43,6 +43,7 @@ import {
   PROVIDER,
   PROVIDER_NAME,
   SDK,
+  WEB_BASE,
 } from "./src/context.mjs"
 import { createUsageCache } from "./src/usage-cache.mjs"
 import { fetchDashboard, fetchMe, fetchModelList } from "./src/api.mjs"
@@ -57,6 +58,7 @@ import { buildLoaderResult } from "./src/chat.mjs"
 import { buildModels, staticModels } from "./src/models.mjs"
 import { buildUsage } from "./src/usage.mjs"
 import { doCheckin } from "./src/checkin.mjs"
+import { loginViaBrowser } from "./src/web-login.mjs"
 import { normaliseOptions } from "./src/options.mjs"
 
 export const OpcAuthPlugin = async (_ctx, rawOptions) => {
@@ -94,6 +96,36 @@ export const OpcAuthPlugin = async (_ctx, rawOptions) => {
       //   粘错东西的后果是第一次请求报错，而不是登录界面出错 —— 这是我们想要的
       //   （登录界面里没有网络，能一秒返回）。
       methods: [
+        // ── 方式一：隔离浏览器登录（推荐）────────────────────────────
+        //
+        // 插件开一个**一次性 profile** 的 Chromium 窗口：没有扩展、没有书签、
+        // 也没有你在其他网站的登录态。你在窗口里正常登录 opc.fiime.cn，
+        // 插件从 CDP 读走 ANASID + opc_sid，然后关窗、删目录。
+        //
+        // ⚠ authorize() 必须立刻返回（铁律 2）：这里只返回「窗口会开」这个事实，
+        //   真正的等待在 callback() 里。
+        {
+          type: "oauth",
+          label: "浏览器登录（隔离窗口，不碰你日常浏览器）",
+          async authorize() {
+            return {
+              url: `${WEB_BASE}/zh-cn/login`,
+              instructions:
+                "插件会开一个隔离的浏览器窗口（一次性 profile，不读也不写你日常浏览器的数据）。" +
+                "在窗口里登录 opc.fiime.cn，登录成功后**别关窗口**，等它自己收工 —— " +
+                "它会自动收下登录态，一次就把额度、模型通道和签到都配好。",
+              method: "auto",
+              opened: true,
+              async callback() {
+                try {
+                  return await loginViaBrowser({})
+                } catch (error) {
+                  return { type: "failed", error: String(error?.message || error).slice(0, 400) }
+                }
+              },
+            }
+          },
+        },
         {
           type: "api",
           label: "粘贴浏览器 Cookie（额度 + 模型通道 + 签到，一次齐）",

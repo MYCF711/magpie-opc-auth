@@ -8,7 +8,7 @@
 ```
 额度      Token 钱包（用一点少一点，不会每日重置）+ 每日消耗上限 1 亿（北京时间 0 点重置）
 模型      17 个聊天模型（站点 /v1/models 实测 22 条，其中 5 条是图像/视频生成）
-登录方式  2 种（粘贴浏览器 Cookie / 粘贴 API Key��
+登录方式  3 种（隔离浏览器窗口 / 粘贴浏览器 Cookie / 粘贴 API Key）
 跑模型要  一把 API Key（`opc_sk_…`）——「粘贴 Cookie」那条路插件会自己换一把
 签到      寄语墙任务：每天 1 条 ≥20 字寄语，+1000 万 Token（累计上限 30 次）
 ```
@@ -23,17 +23,23 @@
 
 ## 一次到位，或者两步走
 
-**省事的那条：登录时选「粘贴浏览器 Cookie」。**
-浏览器打开 opc.fiime.cn 并登录 → F12 → Application → Cookies → 复制 `ANASID`、`opc_sid`、`ANACCOUNT`
-拼成 `ANASID=…; opc_sid=…; ANACCOUNT=…` 粘进去。插件会：
+**最省事的那条：登录时选「浏览器登录（隔离窗口）」。**
+插件会开一个**一次性 profile** 的 Chromium 窗口 —— 没有扩展、没有书签、没有你其他网站的登录态，
+也不读写你日常浏览器的任何数据。你在窗口里正常登录 opc.fiime.cn，**别关窗口**，
+插件从 CDP 读走 `ANASID` + `opc_sid`，然后关窗、把临时目录整个删掉。全程不用碰 F12。
+
+拿到 Cookie 之后，三条路（隔离窗口 / 粘贴 Cookie）做的是同一件事：
 
 1. 用 Cookie 读额度（余额 / 今日用量 / 任务进度）
 2. 用 Cookie 在站点上创建一把 API Key（`POST /api/model-service/keys`）并落盘到 `~/.cache/magpie/`
 3. 把这条 key 交给模型通道
 
-**只想跑模型**：登录时选「粘贴 API Key」，从 <https://opc.fiime.cn/zh-cn/model-service> 的
-「创建 API Key」拿一把 `opc_sk_…` 粘进去。额度卡片会明确说「这条凭据只有 API Key，查不了额度」，
-不会假装 0。
+**不想开浏览器、也不想登**：登录时选「粘贴 API Key」，从
+<https://opc.fiime.cn/zh-cn/model-service> 的「创建 API Key」拿一把 `opc_sk_…` 粘进去。
+额度卡片会明确说「这条凭据只有 API Key，查不了额度」，不会假装 0。
+
+**已经有 Cookie 文本**（比如从别的机器带过来的）：选「粘贴浏览器 Cookie」，
+格式 `ANASID=…; opc_sid=…`（带不带 `ANACCOUNT` 都行 —— 实测只凭前两个就能打通额度与账号接口）。
 
 ## 功能
 
@@ -100,7 +106,7 @@
 
 ```bash
 magpie plugin add github:MYCF711/magpie-opc-auth
-magpie plugin login opc      # 选「粘贴浏览器 Cookie」
+magpie plugin login opc      # 选「浏览器登录（隔离窗口）」，在弹出来的窗口里登录一次
 magpie quota opc             # 看 Token 余额与今日用量
 magpie models                # 确认 opc/* 模型出现在列表里
 

@@ -129,9 +129,30 @@ POST /api/model-service/benefits/claim {"task":"message_wall"} → {reward:10000
 模型通道的请求由 `@ai-sdk/openai-compatible` 直接发往上游，插件不包裹 `fetch` ——
 所以上游的错误 status 会原样交给宿主。这是有意的：少一层改写，少一类「404 被写成 401」的事故。
 
-## 8. 已知限制
+## 8. 隔离浏览器登录
+
+`src/browser-login.mjs`（通用）+ `src/web-login.mjs`（本插件的策略）。
+
+流程：
+
+1. `findBrowser()` 按优先级探测 Chromium 内核浏览器：Chrome → 国产 Chromium（360 / QQ / Sogou / 2345 / 猎豹 / Maxthon / UC / Quark）→ Edge。
+   Windows 额外走注册表 `App Paths`（找不到时静默，不把 `reg query` 的报错刷进日志）。
+2. `mkdtempSync(tmpdir(), "magpie-login-")` 建一次性 profile，`--user-data-dir` 指过去。
+3. 开 `--remote-debugging-port=<随机空闲端口>`，等 CDP 的 `/json/list` 给出页面 WebSocket。
+4. 每秒 `Network.getAllCookies` 一次，挑 `ANASID` / `opc_sid`；
+   两个都拿到就收工（`readyToFinish` 是「且」不是「或」）。
+5. `finally` 里杀进程 + `rmSync(profile, { recursive: true })`。
+
+实测（2026-11-03）：本机 `msedge` 被选中，窗口能开、CDP 能连；无人登录时 20 秒超时
+后返回 `{"type":"failed","error":"受控浏览器登录没走完：登录超时：没有拿到 ANASID / opc_sid"}`，
+临时目录已清理。
+
+只要求 `ANASID` + `opc_sid` 的依据：实测只带这两个，`/api/model-service` 与 `/api/auth/me`
+都返回 200；`ANACCOUNT` 可有可无（它是 365 天的账号标识，不参与鉴权判定）。
+
+## 9. 已知限制
 
 - 站点不提供上下文窗口长度，`limit.context` 多数模型是省略的
 - 图像 / 视频生成模型没有接进 magpie 的供图通道（`DrawsID` / `ImagesAPI`），列进来会在 chat 里选中报错
-- 没有自动续期：cookie 7 天后过期，需要用户重新粘贴
-- 没有浏览器自动登录（不做受控 Chromium 窗口）：站点登录必须用户自己完成，插件只负责消费 Cookie
+- 没有自动续期：cookie 7 天后过期，需要用户重新登录（隔离窗口或粘贴都行）
+- 隔离浏览器登录依赖本机装有 Chromium 内核浏览器；没有的话会明确提示改用「粘贴 Cookie」

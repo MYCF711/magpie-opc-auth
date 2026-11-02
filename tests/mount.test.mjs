@@ -77,14 +77,26 @@ test("config() 未登录也声明了模型，且 modalities / 五个 input 布�
   assert.equal(models["glm-5-2"].capabilities.toolcall, true)
 })
 
-test("登录方式：两条粘贴路，运行时按形状识别", async () => {
+test("登录方式：一条隔离浏览器 + 两条粘贴路", async () => {
   const plugin = await OpcAuthPlugin({ client: {} })
   const methods = plugin.auth.methods
-  assert.ok(Array.isArray(methods) && methods.length === 2)
-  for (const method of methods) {
+  assert.ok(Array.isArray(methods) && methods.length === 3)
+
+  // ① 隔离浏览器登录：authorize 必须**立刻**返回，真正的等待在 callback
+  const browser = methods[0]
+  assert.equal(browser.type, "oauth")
+  const started = Date.now()
+  const ticket = await browser.authorize()
+  assert.ok(Date.now() - started < 500, "authorize() 不能等网络（铁律 2）")
+  assert.equal(typeof ticket.url, "string")
+  assert.equal(ticket.opened, true)
+  assert.equal(ticket.method, "auto")
+  assert.equal(typeof ticket.callback, "function")
+
+  // ② 两条粘贴路：不要在 authorize 里做任何事
+  for (const method of methods.slice(1)) {
     assert.equal(method.type, "api")
     assert.equal(typeof method.label, "string")
-    // 粘贴型凭据不要在 authorize 里做网络请求
     assert.equal(method.authorize, undefined)
   }
 })

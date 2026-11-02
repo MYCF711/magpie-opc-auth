@@ -9,7 +9,8 @@
 - 许可：MIT
 - 吸收内容：仓库结构、九钩子装配方式、`scripts/check.mjs` / `score.mjs` /
   `privacy-scan.mjs`、`src/quota.mjs`、`src/usage-cache.mjs`、`src/store.mjs`、
-  `src/model-context.mjs`、`src/http.mjs` 的错误词表。
+  `src/model-context.mjs`、`src/http.mjs` 的错误词表、
+  `src/browser-login.mjs`（受控 Chromium + CDP 取 Cookie 的通用实现）。
 
 ## magpie-community/plugins
 
