@@ -1,0 +1,11 @@
+{
+  "package": "magpie-opc-auth",
+  "name": "一人公司社区 FiimeOPC",
+  "providers": [
+    "opc"
+  ],
+  "summary": {
+    "en": "Sign in to FiimeOPC (opc.fiime.cn) with a browser cookie, see your Token wallet, daily quota and daily-task progress on the card, run the site's chat models through an OpenAI-compatible endpoint, and claim the daily check-in reward.",
+    "zh": "用浏览器 Cookie 登录 FiimeOPC（opc.fiime.cn），在卡片上看 Token 余额、每日用量与每日任务进度，通过 OpenAI 兼容端点跑站点自己的聊天模型，并一键完成每日签到。"
+  }
+}

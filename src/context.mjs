@@ -1,0 +1,95 @@
+// 共享上下文 —— 框里所有小插头都读这一份
+//
+// ⚠ 改这里，不要改各个 hook 文件里的常量。
+//   针脚模块只关心「怎么填这一个针脚」，厂商信息全在这儿。
+
+/** 厂商 id：agent 用 `<id>/<model>` 命名，改完全世界都要跟着改 */
+export const PROVIDER = "opc"
+
+/** 卡片上显示的供应商名：必须 <中文> <English>，英文照抄厂商官方品牌写法 */
+export const PROVIDER_NAME = "一人公司社区 FiimeOPC"
+
+/** 网页域：额度、账号、签到都走这里 */
+export const WEB_BASE = "https://opc.fiime.cn"
+
+/** 模型通道基址（OpenAI Chat 形状，SDK 会自己拼 /chat/completions） */
+export const BASE = "https://opc.fiime.cn/api/model-service/v1"
+
+/**
+ * 决定 API 形状：
+ *   @ai-sdk/openai-compatible → Chat completions  /chat/completions
+ *
+ * FiimeOPC 的模型端点是标准 OpenAI Chat 形状（实测 200 + SSE + tool_calls + usage），
+ * 但它**要求 Bearer API Key**（`opc_sk_…`）—— 网页 cookie 打这个端点会回
+ * `{"error":{"type":"invalid_api_key"}}`。所以模型通道必须由插件用 cookie 自动换一把 key。
+ */
+export const SDK = "@ai-sdk/openai-compatible"
+
+/** 网页 cookie 的有效期（服务端不滑动续期，实测响应里没有 Set-Cookie） */
+export const COOKIE_TTL_MS = 7 * 24 * 3600_000
+
+export const PLUGIN_VERSION = "0.1.0"
+
+/** 请求必须带 UA：站点对 UA 敏感的接口会回「请求异常，请稍后再试」 */
+export const USER_AGENT = `magpie-opc-auth/${PLUGIN_VERSION}`
+
+/** 控制台路由（从前端 bundle 与页面实测出来的真实路径，别改） */
+export const ROUTES = Object.freeze({
+  modelService: `${WEB_BASE}/zh-cn/model-service`,
+  keys: `${WEB_BASE}/zh-cn/model-service?tab=keys`,
+  benefits: `${WEB_BASE}/zh-cn/model-service?tab=benefits`,
+  profile: `${WEB_BASE}/zh-cn/profile`,
+  messageWall: `${WEB_BASE}/zh-cn/message-wall`,
+  community: `${WEB_BASE}/zh-cn/community`,
+  hub: `${WEB_BASE}/zh-cn/hub`,
+})
+
+/**
+ * 图标 —— **两处必须一致**，缺一份就有地方显示灰方块：
+ *   auth.icon（本文件导出）  → 供应商列表那一行、用量概览的卡
+ *   package.json 的 magpie.icon → 插件列表那一行、插件详情页左上角
+ */
+export const ICON =
+  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0Ij48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNlODc4NWEiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiNjOTU2M2QiLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB4PSIyIiB5PSIyIiB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHJ4PSIxNCIgZmlsbD0idXJsKCNnKSIvPjxjaXJjbGUgY3g9IjMyIiBjeT0iMzIiIHI9IjE2IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iNSIgb3BhY2l0eT0iLjk1Ii8+PC9zdmc+"
+
+/**
+ * 模型能力表 —— **上下文长度没有实测值，所以这里不写 context**。
+ *
+ * 站点 `/api/model-service/v1/models` 只给 `type` / `modalities` / `capabilities` /
+ * `rateMultiplier`，没有上下文窗口字段；页面与文档也没写。
+ * 按 CHECKLIST A-8「上下文窗口是实测值，不是猜的」，这里只声明已知的能力，
+ * 窗口长度交给 `src/model-context.mjs` 从宿主缓存里查（查不到就不写）。
+ *
+ * 字段：id / name / image（能不能收图，**必须写成布尔值**）/ toolcall / reasoning
+ */
+export const MODEL_SPECS = Object.freeze([
+  { id: "deepseek-v4-1-flash-1017", name: "DeepSeek V4.1 Flash 1017", image: true, toolcall: true, reasoning: true },
+  { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", image: true, toolcall: true, reasoning: true },
+  { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", image: true, toolcall: true, reasoning: true },
+  { id: "deepseek-v4-flash-0731", name: "DeepSeek V4 Flash 0731", image: true, toolcall: true, reasoning: true },
+  { id: "glm-5-2", name: "GLM 5.2", image: false, toolcall: true },
+  { id: "glm-5-2-l", name: "GLM 5.2 L", image: false, toolcall: true },
+  { id: "kimi-k3", name: "Kimi K3", image: true, toolcall: true, reasoning: true },
+  { id: "mixmodel", name: "MixModel", image: true, toolcall: true },
+  { id: "qwen3-8-27b", name: "Qwen3 8B/27B", image: false, toolcall: true },
+  { id: "dots-3-note-preview", name: "Dots 3 Note Preview", image: false, toolcall: true },
+  { id: "north-mini-code", name: "North Mini Code", image: false, toolcall: true },
+  { id: "laguna-xs-2-1", name: "Laguna XS 2.1", image: false, toolcall: true },
+  { id: "nemotron-3-ultra-550b-a55b", name: "Nemotron 3 Ultra 550B", image: false, toolcall: true },
+  { id: "space-bunny-alpha", name: "Space Bunny Alpha", image: false, toolcall: true },
+  { id: "sensenova-6-8-flash-lite", name: "SenseNova 6.8 Flash Lite", image: true, toolcall: true },
+  { id: "opc-txt-v1", name: "OPC Text v1", image: false, toolcall: true },
+  { id: "opc-txt-v2", name: "OPC Text v2", image: false, toolcall: true },
+])
+
+/** 登录前先乐观地写 true；登录后由 src/models.mjs 按模型的 capabilities 纠正 */
+export const TOOLS_BEFORE_LOGIN = true
+
+/** 默认模型 */
+export const DEFAULT_MODEL = "deepseek-v4-flash"
+
+/** 生成类模型不列进 chat 列表（vision 模型的 id 前缀） */
+export const GENERATION_MODEL_PREFIXES = ["opc-image", "opc-video", "sensenova-u1"]
+
+/** 网页写操作要带的 CSRF 头名（/api/csrf-token 返回的 headerName 也是这个） */
+export const CSRF_HEADER = "X-CSRF-Token"
