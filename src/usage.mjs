@@ -71,12 +71,15 @@ export function buildUsage({ dashboard, me, accountName }) {
   if (dailyLimit > 0) {
     windows.push(
       usageWindow({
-        name: "今日用量",
+        // ⚠ 名字必须叫「剩余」：magpie 对这个窗口的渲染是 `limit - amount / limit`
+        //   （实测卡片上写的是「99,998,144 / 100,000,000 · 剩余 100%」），
+        //   标题写成「今日用量」会让人以为今天已经烧了 1 亿。
+        name: "今日剩余额度",
         amount: Math.min(usedToday, dailyLimit),
         limit: dailyLimit,
         unit: "Token",
         resetsAt: nextBeijingMidnight(),
-        display: `今日 ${fmt(usedToday)} / 上限 ${fmt(dailyLimit)} Token`,
+        display: `已用 ${fmt(usedToday)} · 上限 ${fmt(dailyLimit)} Token`,
       }),
     )
   }

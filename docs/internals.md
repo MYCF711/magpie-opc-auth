@@ -47,7 +47,9 @@ GET /api/model-service/v1/models        带 Key     → 200 {"object":"list","da
 三种窗口的取舍：
 
 - **Token 余额** → 钱包型 `usageWindow({ balance })`，可路由（quota.mjs 允许只有 balance 的窗口参与路由）
-- **今日用量** → 数量型 `usageWindow({ amount: usedToday, limit: dailyLimit, resetsAt })`，
+- **今日剩余额度** → 数量型 `usageWindow({ amount: usedToday, limit: dailyLimit, resetsAt })`。
+  ⚠ magpie 对数量型窗口的渲染是 **`limit - amount / limit`**（卡片原话：「99,998,144 / 100,000,000 · 剩余 100%」），
+  所以窗口名必须是「剩余」类的措辞；叫「今日用量」会读成「今天用掉了 1 亿」。
   `resetsAt` 是**下一个北京时间 0 点转成 ISO**（不能塞站点原样时间，否则整条窗口被丢掉）
 - **今日任务** → `textOnly: true`，只上卡片不参与路由
 

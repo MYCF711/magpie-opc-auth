@@ -15,6 +15,7 @@
 // 与「粘贴 Cookie」的关系：两条路得到的凭据形状完全一样（都是 `ANASID=…; opc_sid=…`），
 // 所以后续的额度、模型通道、签到走的是同一套代码，不存在「登录方式不同行为不同」的分叉。
 
+import { fetchMe } from "./api.mjs"
 import { chromiumLogin, findBrowser } from "./browser-login.mjs"
 import { WEB_BASE } from "./context.mjs"
 
@@ -86,14 +87,31 @@ export async function loginViaBrowser({
     }
   }
 
+  // 顺手问一次账号名：卡片标题会用 accountId，否则 magpie 只能显示
+  // 「API key ...5bf2」这种尾号（用户会以为自己登的是 API Key）。
+  // 查不到就留空 —— 不能因为这一步失败就判登录失败。
+  let accountId = ""
+  let uid = ""
+  try {
+    const me = await fetchMe(cookie)
+    accountId = String(me?.username || me?.nickname || "")
+    uid = String(me?.id || me?.opcId || "")
+  } catch {
+    /* 名字不是登录的必要条件 */
+  }
+
   return {
     type: "success",
     key: cookie,
+    ...(accountId ? { accountId } : {}),
+    ...(uid ? { uid } : {}),
     metadata: {
       kind: "cookie",
       source: "browser",
       browser: result.browser || target.name,
       loggedInAt: Date.now(),
+      ...(accountId ? { username: accountId } : {}),
+      ...(uid ? { userId: uid } : {}),
     },
   }
 }
