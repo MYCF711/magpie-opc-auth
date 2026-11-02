@@ -47,11 +47,18 @@ GET /api/model-service/v1/models        带 Key     → 200 {"object":"list","da
 三种窗口的取舍：
 
 - **Token 余额** → 钱包型 `usageWindow({ balance })`，可路由（quota.mjs 允许只有 balance 的窗口参与路由）
-- **今日剩余额度** → 数量型 `usageWindow({ amount: usedToday, limit: dailyLimit, resetsAt })`。
-  ⚠ magpie 对数量型窗口的渲染是 **`limit - amount / limit`**（卡片原话：「99,998,144 / 100,000,000 · 剩余 100%」），
-  所以窗口名必须是「剩余」类的措辞；叫「今日用量」会读成「今天用掉了 1 亿」。
-  `resetsAt` 是**下一个北京时间 0 点转成 ISO**（不能塞站点原样时间，否则整条窗口被丢掉）
-- **今日任务** → `textOnly: true`，只上卡片不参与路由
+- **Token 余额（唯一的额度窗口）** → 钱包型 `usageWindow({ balance })`。
+  实测字段：`{"balance":19998144,"totalEarned":20000000,"totalSpent":1856}`，卡片上就显示 `balance`。
+  ⚠ **不要用 `usage.dailyLimit` 当分母**（1 亿/天）：那是「今天最多能花多少」，几乎永远用不完，
+  写进卡片会让进度条永远满格；用户要的是「我还有多少」，不是「今天还没花完多少」。
+  也不要用 `totalSpent / totalEarned` 做占比：`totalEarned` 每天领奖励都在涨，同一个余额会被显示成不同比例。
+- **今日额度（条件出现）** → 只有 `usedToday >= dailyLimit` 时才加，文本窗口
+  （`used: 100, aside: true, text: true`），内容 `已用尽 · N 小时后恢复`。未用尽时这一格完全不存在。
+- **今日任务** → 文本窗口，只上卡片不参与路由
+
+⚠ 文本窗口不能写 `textOnly: true`：`src/quota.mjs` 的 `usage()` 会对窗口做第二次构造，
+而 `textOnly` 在第一次构造时被过滤掉，第二次就会因为「没有 used」而抛 `QuotaShapeError`。
+用 `used: 0 + aside: true + text: true` 表达同一个意思，且幂等。
 
 ## 3. 模型目录
 

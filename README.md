@@ -30,7 +30,7 @@
 
 拿到 Cookie 之后，三条路（隔离窗口 / 粘贴 Cookie）做的是同一件事：
 
-1. 用 Cookie 读额度（余额 / 今日剩余额度 / 任务进度）
+1. 用 Cookie 读额度（总余额 / 任务进度；用尽时提示恢复时间）
 2. 用 Cookie 在站点上创建一把 API Key（`POST /api/model-service/keys`）并落盘到 `~/.cache/magpie/`
 3. 把这条 key 交给模型通道
 
@@ -72,9 +72,10 @@
 
 - **Token 余额上卡片**：钱包型窗口显示 `wallet.balance`（实测 2000 万起）。
   余额不会每日重置 —— 重置的只有「今天还能花多少」。
-- **今日剩余额度**：数量型窗口，`amount = usedToday`、`limit = dailyLimit`（实测上限 1 亿 Token/天），
-  按北京时间 0 点重置。卡片上显示的是 `剩余 / 上限`（magpie 的渲染方式），所以窗口名就叫「今日剩余额度」——
-  叫「今日用量」会让人以为今天已经烧掉 1 亿。实际已用的数字在 `display` 里（`已用 1,856 · 上限 1 亿`）。
+- **卡片只报总余额**：一格「Token 余额」，数字就是 `wallet.balance`（账号里还剩多少 Token）。
+  **不写每日上限** —— `usage.dailyLimit`（实测 1 亿/天）是站点内置的「今天最多能花多少」，
+  几乎永远用不完，写上去只会让进度条永远满格。只有**真的用尽**当日额度时，才多一行
+  「已用尽 · N 小时后恢复」，其余时候连「上限」两个字都不出现。
 - **今日任务进度**：4 个每日任务（寄语墙 / 搭子广场发帖 / 资源中心项目 / 需求中心）
   领了几个、还剩哪些，一行文字写在卡片上。
 - **17 个聊天模型，能力照模型自己的声明**：`image` / `toolcall` 来自站点 `/v1/models` 的
@@ -135,7 +136,7 @@
 ```bash
 magpie plugin add github:MYCF711/magpie-opc-auth
 magpie plugin login opc      # 选「浏览器登录（隔离窗口）」，在弹出来的窗口里登录一次
-magpie quota opc             # 看 Token 余额与今日剩余额度
+magpie quota opc             # 看 Token 总余额
 magpie models                # 确认 opc/* 模型出现在列表里
 
 # 签到在应用的供应商页 —— 点这张卡上的「签到」；

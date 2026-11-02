@@ -28,6 +28,12 @@ export function nextBeijingMidnight(now = Date.now()) {
   return new Date(nextLocal - tz).toISOString()
 }
 
+/** 距离下一个北京时间 0 点还有几小时（向上取整，至少 1） */
+export function hoursUntilReset(now = Date.now()) {
+  const next = Date.parse(nextBeijingMidnight(now))
+  return Math.max(1, Math.ceil((next - now) / 3600_000))
+}
+
 /** 任务进度一句话 */
 export function benefitSummary(dashboard) {
   const tasks = dashboard?.benefits?.tasks || []
@@ -59,6 +65,11 @@ export function buildUsage({ dashboard, me, accountName }) {
 
   const windows = []
 
+  // ── 主额度 = 账号总余额（wallet.balance）──────────────────────────
+  //
+  // ⚠ 不写每日上限。`usage.dailyLimit` 是站点内置的「今天最多能花多少」，
+  //   它几乎永远用不完；写进卡片只会让进度条永远满格，用户看到的不是「我还有多少」。
+  //   这一格只回答一件事：这个账号里还有多少 Token。
   windows.push(
     usageWindow({
       name: "Token 余额",
@@ -68,18 +79,15 @@ export function buildUsage({ dashboard, me, accountName }) {
     }),
   )
 
-  if (dailyLimit > 0) {
+  // 只有**真的用尽**了当日额度才提一句「用尽 + 何时恢复」；其余时候连「上限」都不出现。
+  if (dailyLimit > 0 && usedToday >= dailyLimit) {
     windows.push(
       usageWindow({
-        // ⚠ 名字必须叫「剩余」：magpie 对这个窗口的渲染是 `limit - amount / limit`
-        //   （实测卡片上写的是「99,998,144 / 100,000,000 · 剩余 100%」），
-        //   标题写成「今日用量」会让人以为今天已经烧了 1 亿。
-        name: "今日剩余额度",
-        amount: Math.min(usedToday, dailyLimit),
-        limit: dailyLimit,
-        unit: "Token",
-        resetsAt: nextBeijingMidnight(),
-        display: `已用 ${fmt(usedToday)} · 上限 ${fmt(dailyLimit)} Token`,
+        name: "今日额度",
+        used: 100,
+        aside: true,
+        text: true,
+        display: `已用尽 · ${hoursUntilReset()} 小时后恢复`,
       }),
     )
   }
