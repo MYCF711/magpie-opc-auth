@@ -101,9 +101,11 @@
 ```bash
 magpie plugin add github:MYCF711/magpie-opc-auth
 magpie plugin login opc      # 选「粘贴浏览器 Cookie」
-magpie quota                 # 看 Token 余额与今日用量
-magpie provider test opc     # 发一个很小的请求验证通道
-magpie plugin checkin opc    # 手动签到一次
+magpie quota opc             # 看 Token 余额与今日用量
+magpie models                # 确认 opc/* 模型出现在列表里
+
+# 签到在应用的供应商页 —— 点这张卡上的「签到」；
+# 想让它每天自动签到，打开对应设置项（magpie 的每日签到开关）。
 ```
 
 装完在应用的 **供应商** 页能看到 `一人公司社区 FiimeOPC` 这一行。
