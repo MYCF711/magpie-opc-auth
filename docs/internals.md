@@ -162,7 +162,11 @@ POST /api/model-service/benefits/claim {"task":"message_wall"} → {reward:10000
 | `limitReached` / `!quotaAvailable` / `!enabled` | `skip` | 名额用尽或活动关闭 |
 | 其余 | `do` | 才允许发布内容 |
 
-发布内容后立刻 `POST /benefits/claim`；领取成功与否都会记录在返回的 `results[]` 里。
+发布内容后立刻 `POST /benefits/claim`；**领取成功才清理**：`DELETE /api/projects/:id`、
+`DELETE /api/community/posts/:id`、`DELETE /api/requirements/:id`。
+顺序不能反 —— 先删会让 `completed` 回退成 false，`claimable` 也随之消失，当天就领不到了。
+`tests/tasks-order.test.mjs` 用假站点把「claim → delete」的先后钉死（断言 `deleteAt > claimAt`）。
+寄语不删：它是签到本身的产物，删掉会让卡片上的当日进度回退。
 同一账号用内存锁 `running` 串行化（登录回调与签到钩子可能同时触发），
 且以 `claimed` 状态为准 —— 锁失效也不会重复发。
 

@@ -352,6 +352,24 @@ export async function createRequirement(cookie, { title, summary, tags = [] }) {
   return res.data?.requirement || res.data || null
 }
 
+/** 删除一条已发布的内容（帖子 / 项目 / 需求 / 寄语） */
+export async function deleteContent(cookie, { type, id }) {
+  const paths = {
+    post: `/api/community/posts/${encodeURIComponent(id)}`,
+    project: `/api/projects/${encodeURIComponent(id)}`,
+    demand: `/api/requirements/${encodeURIComponent(id)}`,
+    note: `/api/message-wall/${encodeURIComponent(id)}`,
+  }
+  const path = paths[type]
+  if (!path) throw new Error(`不知道 ${type} 该怎么删`)
+  const csrf = await fetchCsrf(cookie)
+  const res = await webFetch(path, { method: "DELETE", cookie, csrf })
+  if (res.status === 200) return true
+  // 404 = 已经没了，对调用方来说是同一个结果
+  if (res.status === 404) return true
+  throw new Error(`删除${type}失败（HTTP ${res.status}）：${shortText(res.data)}`)
+}
+
 function shortText(value) {
   if (typeof value === "string") return value.slice(0, 200)
   try {

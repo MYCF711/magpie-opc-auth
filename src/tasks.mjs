@@ -20,6 +20,7 @@ import {
   createPost,
   createProject,
   createRequirement,
+  deleteContent,
   fetchDashboard,
   fetchMe,
   publishNote,
@@ -65,6 +66,7 @@ export function gateTask(task) {
  * @param {object} [p.options]
  * @param {boolean} [p.options.useModel]    用模型写内容（默认 false：内置文案，0 Token）
  * @param {string[]} [p.options.tasks]      只做这几条（默认全部）
+ * @param {boolean} [p.options.keepPublished] 领取后保留模板内容（默认 false = 删掉）
  * @param {string} [p.signature]            寄语署名
  * @param {string} [p.accountKey]           并发锁的键
  * @param {(msg:string)=>void} [p.log]
@@ -131,12 +133,22 @@ export async function runDailyTasks({ cookie, options = {}, signature = "", acco
 
       const claimed = await tryClaim(cookie, task, log)
       if (claimed.ok) reward += claimed.reward
+
+      // 模板内容不留在站上：领到奖励之后删掉（帖子 / 项目 / 需求）。
+      // 寄语（note）例外 —— 它是「签到」本身，删掉会让卡片上的当日进度回退，
+      // 而且一条 30 字的寄语本来就是正常社区内容。
+      let cleaned = false
+      if (claimed.ok && published?.id && published.type !== "note" && !options.keepPublished) {
+        cleaned = await cleanup(cookie, published, log)
+      }
+
       results.push({
         id: task.id,
         label: meta.label,
         status: claimed.ok ? "claimed" : "published-not-claimable",
         reward: claimed.reward,
-        published: Boolean(published),
+        ...(published?.id ? { publishedId: published.id } : {}),
+        ...(claimed.ok ? { cleaned } : {}),
       })
     }
 
@@ -180,6 +192,22 @@ async function realnameStatus(cookie) {
   return { ok: verified, status: status || (verified ? "approved" : "未提交") }
 }
 
+/** 领完奖励再删内容：顺序不能反 —— 先删会让任务变成「未完成」，就领不到了 */
+async function cleanup(cookie, created, log) {
+  try {
+    await deleteContent(cookie, created)
+    log(`已清理模板${labelOf(created.type)}：${created.id}`)
+    return true
+  } catch (error) {
+    log(`清理模板${labelOf(created.type)}失败：${error?.message ?? error}`)
+    return false
+  }
+}
+
+function labelOf(type) {
+  return { post: "帖子", project: "项目", demand: "需求", note: "寄语" }[type] || type
+}
+
 async function tryClaim(cookie, task, log) {
   try {
     const res = await claimBenefit(cookie, task.id)
@@ -197,46 +225,46 @@ async function performTask(cookie, task, { options, signature, log }) {
   switch (task.id) {
     case "message_wall": {
       const text = pickNote()
-      await publishNote(cookie, { text, signature: signature || "magpie", color: "yellow", anonymous: false })
+      const note = await publishNote(cookie, { text, signature: signature || "magpie", color: "yellow", anonymous: false })
       log("已发布寄语")
-      return true
+      return { type: "note", id: note?.id }
     }
     case "plaza_post": {
       const draft = pickPost()
-      await createPost(cookie, { circleId: CHECKIN_CIRCLE, title: draft.title, content: draft.content })
+      const post = await createPost(cookie, { circleId: CHECKIN_CIRCLE, title: draft.title, content: draft.content })
       log("已发布搭子广场帖子")
-      return true
+      return { type: "post", id: post?.id }
     }
     case "project_publish": {
-      const project = pickProject()
+      const draft = pickProject()
       const cover = await uploadImage(cookie, {
         buffer: Buffer.from(COVER_BASE64, "base64"),
         filename: COVER_FILENAME,
         mime: COVER_MIME,
       })
-      await createProject(cookie, {
-        title: project.title,
-        summary: project.summary,
-        content: project.content,
-        tags: project.tags,
+      const created = await createProject(cookie, {
+        title: draft.title,
+        summary: draft.summary,
+        content: draft.content,
+        tags: draft.tags,
         link: options?.projectLink || PROJECT_LINK,
         cover,
       })
       log("已发布资源中心项目")
-      return true
+      return { type: "project", id: created?.id }
     }
     case "requirement_publish": {
-      await createRequirement(cookie, {
+      const requirement = await createRequirement(cookie, {
         title: "找一位 Node.js 项目搭子",
         summary:
           "独立开发者，正在做一个每日任务自动化的开源小工具，想找熟悉 Node.js 与前端的朋友一起把核心功能做稳，再考虑发布。",
         tags: ["Node.js", "自动化"],
       })
       log("已发布需求")
-      return true
+      return { type: "demand", id: requirement?.id }
     }
     default:
-      return false
+      return null
   }
 }
 
