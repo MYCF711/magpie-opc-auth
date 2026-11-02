@@ -150,7 +150,34 @@ POST /api/model-service/benefits/claim {"task":"message_wall"} → {reward:10000
 只要求 `ANASID` + `opc_sid` 的依据：实测只带这两个，`/api/model-service` 与 `/api/auth/me`
 都返回 200；`ANACCOUNT` 可有可无（它是 365 天的账号标识，不参与鉴权判定）。
 
-## 9. 已知限制
+## 9. 每日任务闸门（不浪费 Token 的那部分）
+
+`src/tasks.mjs` 的 `gateTask(task)` 是唯一入口，按站点返回的状态位分四档：
+
+| 条件 | 动作 | 依据 |
+|---|---|---|
+| `claimed === true` | `done` | 今天已经领过，再发也不会有第二份奖励 |
+| `completed && claimable` | `claim` | 内容已经在站上，只需 `POST /benefits/claim` |
+| `completed && !claimable` | `skip` | 内容在审核或未结算，重发只会多一条无效内容 |
+| `limitReached` / `!quotaAvailable` / `!enabled` | `skip` | 名额用尽或活动关闭 |
+| 其余 | `do` | 才允许发布内容 |
+
+发布内容后立刻 `POST /benefits/claim`；领取成功与否都会记录在返回的 `results[]` 里。
+同一账号用内存锁 `running` 串行化（登录回调与签到钩子可能同时触发），
+且以 `claimed` 状态为准 —— 锁失效也不会重复发。
+
+实测（2026-11-03，当天 3 条已领）：
+
+```
+{ "results": [
+    { "id": "plaza_post", "status": "done" },
+    { "id": "project_publish", "status": "done" },
+    { "id": "message_wall", "status": "done" },
+    { "id": "requirement_publish", "status": "skip", "reason": "需要实名认证（当前：pending）" } ],
+  "reward": 0, "message": "已领 3，跳过 1" }
+```
+
+## 10. 已知限制
 
 - 站点不提供上下文窗口长度，`limit.context` 多数模型是省略的
 - 图像 / 视频生成模型没有接进 magpie 的供图通道（`DrawsID` / `ImagesAPI`），列进来会在 chat 里选中报错

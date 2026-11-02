@@ -32,8 +32,8 @@ function webHeaders(cookie, extra = {}) {
 }
 
 /** 打一次网页面接口 */
-export async function webFetch(path, { cookie, method = "GET", body, csrf, timeout = TIMEOUT, signal } = {}) {
-  const headers = webHeaders(cookie, csrf ? { [CSRF_HEADER]: csrf } : {})
+export async function webFetch(path, { cookie, method = "GET", body, csrf, timeout = TIMEOUT, signal, extraHeaders = {} } = {}) {
+  const headers = webHeaders(cookie, { ...(csrf ? { [CSRF_HEADER]: csrf } : {}), ...extraHeaders })
   if (body !== undefined) headers["content-type"] = "application/json"
 
   const res = await fetch(WEB_BASE + path, {
@@ -217,6 +217,139 @@ export function randomId() {
   } catch {
     return `r_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`
   }
+}
+
+/** HTML 转义：站点的帖子正文是「纯文本 + 富文本」两个字段 */
+function escapeHtml(text) {
+  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+}
+
+/**
+ * 上传图片（multipart）。项目任务要用 —— 站点强制要求至少一张预览图。
+ * @returns {Promise<string>} 站点上的图片路径，例如 `/uploads/plaza/img_xxx.webp`
+ */
+export async function uploadImage(cookie, { buffer, filename = "cover.png", mime = "image/png" }) {
+  const fd = new FormData()
+  fd.append("file", new Blob([buffer], { type: mime }), filename)
+  const res = await fetch(`${WEB_BASE}/api/plaza/upload`, {
+    method: "POST",
+    headers: {
+      "user-agent": USER_AGENT,
+      cookie,
+      origin: WEB_BASE,
+      referer: `${WEB_BASE}/zh-cn/projects/new`,
+    },
+    body: fd,
+    signal: abortSignal(undefined, 60_000),
+  })
+  const text = await res.text()
+  let data = null
+  try {
+    data = JSON.parse(text)
+  } catch {
+    data = text
+  }
+  if (!res.ok) throw new Error(`上传图片失败（HTTP ${res.status}）：${shortText(data)}`)
+  const url = (data?.urls || [])[0]
+  if (!url) throw new Error("上传图片成功但没有返回地址")
+  return url
+}
+
+/** 搭子广场发帖（打卡签到圈） */
+export async function createPost(cookie, { circleId, title, content }) {
+  const csrf = await fetchCsrf(cookie)
+  const res = await webFetch("/api/community/posts", {
+    method: "POST",
+    cookie,
+    csrf,
+    extraHeaders: { referer: `${WEB_BASE}/zh-cn/community` },
+    body: {
+      circleId,
+      topicIds: [],
+      customTopics: [],
+      title,
+      content,
+      contentHtml: `<p>${escapeHtml(content)}</p>`,
+      mood: "",
+      postMode: "post",
+      images: [],
+      intents: [],
+      skills: [],
+      applicationsEnabled: false,
+    },
+  })
+  if (isLoginBroken(res.status, res.data)) {
+    throw Object.assign(new Error("发帖时登录已失效"), { signIn: "expired", status: 401 })
+  }
+  if (res.status !== 200) throw new Error(`发帖失败（HTTP ${res.status}）：${shortText(res.data)}`)
+  return res.data?.post || null
+}
+
+/** 资源中心发表项目 */
+export async function createProject(cookie, { title, summary, content, tags = [], link, cover }) {
+  const csrf = await fetchCsrf(cookie)
+  const res = await webFetch("/api/projects", {
+    method: "POST",
+    cookie,
+    csrf,
+    extraHeaders: { referer: `${WEB_BASE}/zh-cn/projects/new` },
+    body: {
+      title,
+      summary,
+      content,
+      tags,
+      link,
+      images: [cover],
+      cover, // ⚠ 只给 images 会被拒：「主图必选」，必须带 cover
+      intents: [],
+      applicationsEnabled: false,
+      roles: [],
+    },
+  })
+  if (isLoginBroken(res.status, res.data)) {
+    throw Object.assign(new Error("发布项目时登录已失效"), { signIn: "expired", status: 401 })
+  }
+  if (res.status !== 200) {
+    throw new Error(`发布项目失败（HTTP ${res.status}）：${shortText(res.data)}`)
+  }
+  return res.data?.project || null
+}
+
+/** 需求中心：发布一条合作需求（需要实名认证） */
+export async function createRequirement(cookie, { title, summary, tags = [] }) {
+  const csrf = await fetchCsrf(cookie)
+  const res = await webFetch("/api/requirements", {
+    method: "POST",
+    cookie,
+    csrf,
+    extraHeaders: { referer: `${WEB_BASE}/zh-cn/requirements` },
+    body: {
+      companyName: "独立开发者",
+      demandType: "project",
+      title,
+      summary,
+      budget: "面议",
+      duration: "1-2 个月",
+      acceptMode: "subcontract",
+      contact: "",
+      deadline: 0,
+      tags,
+      images: [],
+    },
+  })
+  if (isLoginBroken(res.status, res.data)) {
+    throw Object.assign(new Error("发布需求时登录已失效"), { signIn: "expired", status: 401 })
+  }
+  if (res.status === 400 && /实名/.test(JSON.stringify(res.data))) {
+    // ⚠ 这里不用 `.code`：那是给宿主看的错误码，必须在 ERROR-CODES 词表内
+    //   （scripts/check-error-codes.mjs 会拦）。「需要实名」是插件内部的跳过原因，
+    //   放在 `.skip` 上，由 src/tasks.mjs 决定这一条今天不做。
+    throw Object.assign(new Error("需要先完成实名认证"), { skip: "realname_required" })
+  }
+  if (res.status !== 200) {
+    throw new Error(`发布需求失败（HTTP ${res.status}）：${shortText(res.data)}`)
+  }
+  return res.data?.requirement || res.data || null
 }
 
 function shortText(value) {

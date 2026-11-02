@@ -93,3 +93,17 @@ export const GENERATION_MODEL_PREFIXES = ["opc-image", "opc-video", "sensenova-u
 
 /** 网页写操作要带的 CSRF 头名（/api/csrf-token 返回的 headerName 也是这个） */
 export const CSRF_HEADER = "X-CSRF-Token"
+
+/** 打卡签到圈 —— 「搭子广场发帖」任务发在这里（从前端圈子列表实测到的 id） */
+export const CHECKIN_CIRCLE = "cc_mufivzctc534ec"
+
+/** 项目任务的默认项目链接（站点不允许留空） */
+export const PROJECT_LINK = "https://opc.fiime.cn"
+
+/** 每日任务的 id（/api/model-service 的 benefits.tasks） */
+export const DAILY_TASK_IDS = Object.freeze([
+  "message_wall",
+  "plaza_post",
+  "project_publish",
+  "requirement_publish",
+])

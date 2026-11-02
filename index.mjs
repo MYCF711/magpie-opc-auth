@@ -59,7 +59,29 @@ import { buildModels, staticModels } from "./src/models.mjs"
 import { buildUsage } from "./src/usage.mjs"
 import { doCheckin } from "./src/checkin.mjs"
 import { loginViaBrowser } from "./src/web-login.mjs"
+import { runDailyTasks } from "./src/tasks.mjs"
 import { normaliseOptions } from "./src/options.mjs"
+
+/**
+ * 登录成功后的后台动作：建 API Key + 跑今天的每日任务。
+ *
+ * ⚠ 故意不 await：登录结果要立刻还给用户（铁律 2 的延伸），
+ *   而「建 key」和「发一条寄语」都是秒级网络动作，让它们在后台跑完就行。
+ *   失败不抛 —— 用户下次刷新卡片会看到具体缺什么。
+ */
+async function afterLogin(cookie, options) {
+  const account = { cookie, apiKey: "", uid: fingerprint(cookie) }
+  try {
+    await ensureModelKey(account, { options })
+  } catch {
+    /* 建 key 失败不阻塞登录 */
+  }
+  try {
+    await runDailyTasks({ cookie, options, signature: "", accountKey: account.uid })
+  } catch {
+    /* 任务失败留给卡片显示 */
+  }
+}
 
 export const OpcAuthPlugin = async (_ctx, rawOptions) => {
   const options = normaliseOptions(rawOptions)
@@ -118,7 +140,12 @@ export const OpcAuthPlugin = async (_ctx, rawOptions) => {
               opened: true,
               async callback() {
                 try {
-                  return await loginViaBrowser({})
+                  const result = await loginViaBrowser({})
+                  // 登录成功 → 后台把「API Key」和「今天的每日任务」一起收掉
+                  if (result?.type === "success" && result.key) {
+                    void afterLogin(result.key, options)
+                  }
+                  return result
                 } catch (error) {
                   return { type: "failed", error: String(error?.message || error).slice(0, 400) }
                 }
@@ -196,7 +223,12 @@ export const OpcAuthPlugin = async (_ctx, rawOptions) => {
           return { outcome: "failed", message: "签到需要网页 Cookie（这条凭据只有 API Key）" }
         }
         try {
-          return await doCheckin({ cookie: account.cookie, options, signature: account.name })
+          return await doCheckin({
+            cookie: account.cookie,
+            options,
+            signature: account.name,
+            accountKey: account.uid || fingerprint(account.raw),
+          })
         } catch (error) {
           if (error?.signIn === "expired") {
             return { outcome: "failed", message: "FiimeOPC 登录已失效（Cookie 过期），重新登录一次" }
