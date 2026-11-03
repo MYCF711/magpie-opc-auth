@@ -16,6 +16,11 @@ export const DEFAULTS = Object.freeze({
   checkinTask: "message_wall",
   /** 签到文案；留空则用内置文案池按日期轮换 */
   checkinText: "",
+  /**
+   * 邀请码（可选）：覆盖内置的默认邀请码（`src/context.mjs` 的 `DEFAULT_INVITE`）。
+   * 只影响「邀请码注册」那条登录方式第一次打开时带的码；用户自己填过就以用户的为准。
+   */
+  inviteCode: "",
 })
 
 export function normaliseOptions(raw) {

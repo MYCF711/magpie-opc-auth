@@ -19,7 +19,9 @@ const sandbox = mkdtempSync(join(tmpdir(), "opc-invite-"))
 process.env.HOME = sandbox
 process.env.USERPROFILE = sandbox
 
-const { createInviteStore, inviteHint, resolveInvite, makeInviteMethod } = await import("../src/invite.mjs")
+const { INVITE_NONE, createInviteStore, inviteHint, pickInvite, resolveInvite, makeInviteMethod } = await import(
+  "../src/invite.mjs"
+)
 const { inviteRegisterUrl } = await import("../src/api.mjs")
 
 // 假码：不是任何真实账号的邀请码
@@ -41,6 +43,22 @@ test("inviteHint：灰色字要说清「这是邀请人的码」和「留空会�
   assert.match(inviteHint(FAKE), /输入 1/)
   assert.match(inviteHint(""), /邀请人/)
   assert.match(inviteHint(""), /留空/)
+  // 「不带码」是一个被记住的状态，提示里必须说清楚
+  assert.match(inviteHint(INVITE_NONE), /不带邀请码/)
+})
+
+test("pickInvite：默认 → 自动 → 首选 → 不带码，四档语义", () => {
+  // 空 / 0 / 1 → 沿用当前（没有当前时由调用方给默认码）
+  assert.equal(pickInvite("", FAKE), FAKE)
+  assert.equal(pickInvite("0", FAKE), FAKE)
+  assert.equal(pickInvite("1", FAKE), FAKE)
+  // 新码：去空格 + 转大写（本站的码是 8 位大写字母数字）
+  assert.equal(pickInvite("  abcd1234 ", FAKE), FAKE)
+  assert.equal(pickInvite("zzzz9999", FAKE), "ZZZZ9999")
+  // 显式不带码：- / none（大小写都认）
+  assert.equal(pickInvite("-", FAKE), INVITE_NONE)
+  assert.equal(pickInvite("NONE", FAKE), INVITE_NONE)
+  assert.equal(pickInvite("", INVITE_NONE), INVITE_NONE, "「不带」要被沿用，不能悄悄恢复成默认码")
 })
 
 test("createInviteStore：写读、原子、空码不写、读失败不抛", () => {

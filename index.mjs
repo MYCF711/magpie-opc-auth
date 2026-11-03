@@ -37,6 +37,7 @@
 
 import {
   BASE,
+  DEFAULT_INVITE,
   ICON,
   MODEL_SPECS,
   PLUGIN_VERSION,
@@ -47,7 +48,7 @@ import {
 } from "./src/context.mjs"
 import { createUsageCache } from "./src/usage-cache.mjs"
 import { fetchDashboard, fetchInvite, fetchMe, fetchModelList, inviteRegisterUrl } from "./src/api.mjs"
-import { createInviteStore, makeInviteMethod, resolveInvite } from "./src/invite.mjs"
+import { INVITE_NONE, createInviteStore, makeInviteMethod, pickInvite } from "./src/invite.mjs"
 import {
   ensureModelKey,
   fingerprint,
@@ -92,6 +93,13 @@ export const OpcAuthPlugin = async (_ctx, rawOptions) => {
 
   // 邀请码策略：`~/.cache/magpie/opc-invite.json`（与别的插件共用同一套存储约定）
   const inviteStore = createInviteStore(PROVIDER)
+
+  // 默认邀请码：选项 `inviteCode` 优先，其次内置的 DEFAULT_INVITE。
+  // 「第一个号默认用我的」就靠它 —— 新用户第一次注册自动带上，不用自己填。
+  const defaultInvite = () => String(options.inviteCode || DEFAULT_INVITE).trim().toUpperCase()
+
+  // 三档里的「自动」：用户存过码就用他存的那个，没有就回到默认码。
+  const effectiveInvite = () => inviteStore.read() || defaultInvite()
 
   return {
     // ═══ ① 声明 provider ══════════════════════════════════════════════
@@ -163,22 +171,28 @@ export const OpcAuthPlugin = async (_ctx, rawOptions) => {
         //   老账号在登录 URL 上带码没有任何效果（实测）。所以这条路的语义是
         //   「先问邀请码 → 用带码的注册页开一次性窗口 → 用户注册完 → 收 Cookie」。
         //
+        // 三档（默认 → 自动 → 首选）：
+        //   · 第一次点开、什么都不填 → **默认码**（选项 `inviteCode` 或内置 DEFAULT_INVITE）
+        //   · 什么都不填 / 输入 1   → **自动**：沿用上次的码（没有上次就是默认码）
+        //   · 填别的码             → **首选**：用他填的，并存下来给下次当「自动」值
+        //   · 输入 - / none        → 不带邀请码，打开普通注册页（已有账号直接登录）
+        //
         // 填的是**邀请人的码**（注册后你的账号挂在他名下）；自己的码在卡片上看
         // （`GET /api/invite`，见 src/usage.mjs 的「我的邀请码」一格）。
-        // 留空就打开普通注册页 —— 已有账号的人可以在这里登录，与「方式一」等价。
         makeInviteMethod({
           label: "邀请码注册（隔离窗口）→ 自动登录",
           mainMethod: {
             // authorize 必须立刻返回（铁律 2）：只把「窗口会开」这件事交回去
             async authorize() {
-              const code = inviteStore.read()
+              const picked = effectiveInvite()
+              const code = picked === INVITE_NONE ? "" : picked
               const url = inviteRegisterUrl(code)
               return {
                 url,
                 instructions: code
                   ? `窗口打开的是带邀请码 ${code} 的注册页。在窗口里完成注册（或直接登录），` +
                     "**别关窗口**，等它自己收工 —— 插件会从 CDP 收下登录态。"
-                  : "窗口打开的是注册页（没有邀请码）。已有账号就直接登录，**别关窗口**，" +
+                  : "窗口打开的是注册页（不带邀请码）。已有账号就直接登录，**别关窗口**，" +
                     "等它自己收工 —— 插件会从 CDP 收下登录态。",
                 method: "auto",
                 opened: true,
@@ -200,9 +214,9 @@ export const OpcAuthPlugin = async (_ctx, rawOptions) => {
           followUps: [],
           // 码只存用户手填的（source: 'chosen'）—— **不滚动**成自己账号的 referralCode：
           // 下次再点这条登录方式时它要还是「邀请人的码」，而不是自己。
-          pick: (inputs) => resolveInvite(inputs.invite, inviteStore.read()).trim().toUpperCase(),
+          pick: (inputs) => pickInvite(inputs.invite, effectiveInvite()),
           save: (code) => inviteStore.write(code, { source: "chosen" }),
-          current: () => inviteStore.read(),
+          current: () => effectiveInvite(),
         }),
         {
           type: "api",

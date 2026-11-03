@@ -99,11 +99,29 @@ export function createInviteStore(prefix) {
   return { file, read, readExtra, write }
 }
 
+/** 「不带邀请码」的哨兵：输入 `-` / `none` 时存它，主登录据此打开普通注册页。 */
+export const INVITE_NONE = "-"
+
 /** 文本框的灰色字：每次点开按当前策略现算（magpie 的 prompts 没有复合控件）。 */
 export function inviteHint(current) {
-  return current
-    ? `当前默认码：${current} · 输入 1 保持不变，或直接填新码`
-    : "填「邀请人」的码（注册后你会挂在他名下）；留空 = 普通注册 / 已有账号直接登录"
+  const c = String(current ?? "").trim()
+  if (c === INVITE_NONE) return "当前：不带邀请码 · 输入 1 保持不变，或直接填码"
+  return c
+    ? `当前默认码：${c} · 输入 1 保持不变，或直接填新码；输入 - 不带邀请码`
+    : "填「邀请人」的码（注册后你会挂在他名下）；留空 = 默认码，输入 - 不带邀请码"
+}
+
+/**
+ * 把用户输入归一成「要用的码」：
+ *
+ *   `-` / `none` → 哨兵（不带邀请码，打开普通注册页）
+ *   空 / `0` / `1` → 沿用当前（没有当前时就是默认邀请码）
+ *   其它 → 当作新码（去空格、转大写 —— 本站的码是 8 位大写字母数字）
+ */
+export function pickInvite(raw, current) {
+  const s = String(raw ?? "").trim()
+  if (s === INVITE_NONE || s.toLowerCase() === "none") return INVITE_NONE
+  return resolveInvite(s, current).trim().toUpperCase()
 }
 
 /** 数字语义：0 / 空 / 1 → 沿用当前；其它 → 新码（原样，具体厂商可再处理）。 */

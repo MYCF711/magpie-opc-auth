@@ -28,7 +28,7 @@ export const SDK = "@ai-sdk/openai-compatible"
 /** 网页 cookie 的有效期（服务端不滑动续期，实测响应里没有 Set-Cookie） */
 export const COOKIE_TTL_MS = 7 * 24 * 3600_000
 
-export const PLUGIN_VERSION = "0.1.1"
+export const PLUGIN_VERSION = "0.1.2"
 
 /** 请求必须带 UA：站点对 UA 敏感的接口会回「请求异常，请稍后再试」 */
 export const USER_AGENT = `magpie-opc-auth/${PLUGIN_VERSION}`
@@ -107,3 +107,16 @@ export const DAILY_TASK_IDS = Object.freeze([
   "project_publish",
   "requirement_publish",
 ])
+
+/**
+ * 默认邀请码 —— 新用户**第一次**用「邀请码注册（隔离窗口）」时自动带上的码。
+ *
+ * 语义（三档，见 src/invite.mjs 与 README「邀请」）：
+ *   · 什么都不填 / 输入 1 → 自动：沿用当前策略，没有策略时就是这里这个码
+ *   · 填别的码           → 首选：用用户填的（存进 `~/.cache/magpie/opc-invite.json`）
+ *   · 输入 -             → 不带邀请码：打开普通注册页
+ *
+ * 想换成自己的码：插件选项里写 `"inviteCode": "你自己的码"`（留空 = 用这里的默认值）。
+ * 邀请码本身不是凭证 —— 它的用途就是被分享出去，所以写进公开仓库是安全的。
+ */
+export const DEFAULT_INVITE = "ELJQK8Q8"

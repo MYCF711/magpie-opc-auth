@@ -8,7 +8,7 @@
 
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync } from "node:fs"
+import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -124,6 +124,42 @@ test("登录方式：隔离浏览器 + 邀请码注册 + 两条粘贴路", async
     assert.equal(typeof method.label, "string")
     assert.equal(method.authorize, undefined)
   }
+})
+
+test("邀请码注册：第一个号默认带默认码，之后自动 / 首选 / 不带码三档", async () => {
+  // 模拟「第一次安装」：策略文件还不存在
+  const policy = join(sandbox, ".cache", "magpie", "opc-invite.json")
+  rmSync(policy, { force: true })
+
+  const plugin = await OpcAuthPlugin({ client: {} })
+  const invite = plugin.auth.methods[1]
+
+  // ① 第一次、什么都不填 → 默认邀请码（DEFAULT_INVITE）
+  const first = await invite.authorize({})
+  assert.match(first.url, /\/register\?invite=ELJQK8Q8$/, "第一个号默认带作者的码")
+
+  // ② 填别人的码 → 首选：用他填的，并存下来
+  const chosen = await invite.authorize({ invite: "zzzz9999" })
+  assert.match(chosen.url, /\/register\?invite=ZZZZ9999$/, "填的码要归一化成大写")
+
+  // ③ 留空 / 输入 1 → 自动：沿用上次存下的码（不会被默认码覆盖回去）
+  assert.match((await invite.authorize({})).url, /invite=ZZZZ9999$/)
+  assert.match((await invite.authorize({ invite: "1" })).url, /invite=ZZZZ9999$/)
+
+  // ④ 输入 - → 不带邀请码，落普通注册页
+  const none = await invite.authorize({ invite: "-" })
+  assert.equal(none.url, "https://opc.fiime.cn/zh-cn/register", "- 要能显式关掉邀请码")
+  // ⑤ 而且「不带」会被记住：下一位留空时仍然不带
+  assert.equal((await invite.authorize({})).url, "https://opc.fiime.cn/zh-cn/register")
+})
+
+test("邀请码注册：选项 inviteCode 覆盖内置默认码", async () => {
+  const policy = join(sandbox, ".cache", "magpie", "opc-invite.json")
+  rmSync(policy, { force: true })
+
+  const plugin = await OpcAuthPlugin({ client: {} }, { inviteCode: "opc11111" })
+  const ticket = await plugin.auth.methods[1].authorize({})
+  assert.match(ticket.url, /\/register\?invite=OPC11111$/)
 })
 
 test("refresh() 不续期也不覆盖字段", async () => {
