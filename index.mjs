@@ -48,7 +48,6 @@ import {
 } from "./src/context.mjs"
 import { createUsageCache } from "./src/usage-cache.mjs"
 import { fetchDashboard, fetchInvite, fetchMe, fetchModelList, inviteRegisterUrl } from "./src/api.mjs"
-import { INVITE_NONE, createInviteStore, makeInviteMethod, pickInvite } from "./src/invite.mjs"
 import {
   ensureModelKey,
   fingerprint,
@@ -63,43 +62,99 @@ import { doCheckin } from "./src/checkin.mjs"
 import { loginViaBrowser } from "./src/web-login.mjs"
 import { runDailyTasks } from "./src/tasks.mjs"
 import { normaliseOptions } from "./src/options.mjs"
+import {
+  INVITE_FIRST_OPTION,
+  createInviteCodes,
+  createInviteStore,
+  createRegisteredInvite,
+  inviteNote,
+  preferredAccount,
+  resolveInviteCode,
+} from "./src/invite.mjs"
 
-/**
- * 登录成功后的后台动作：建 API Key + 跑今天的每日任务。
- *
- * ⚠ 故意不 await：登录结果要立刻还给用户（铁律 2 的延伸），
- *   而「建 key」和「发一条寄语」都是秒级网络动作，让它们在后台跑完就行。
- *   失败不抛 —— 用户下次刷新卡片会看到具体缺什么。
- */
-async function afterLogin(cookie, options) {
-  const account = { cookie, apiKey: "", uid: fingerprint(cookie) }
-  try {
-    await ensureModelKey(account, { options })
-  } catch {
-    /* 建 key 失败不阻塞登录 */
-  }
-  try {
-    await runDailyTasks({ cookie, options, signature: "", accountKey: account.uid })
-  } catch {
-    /* 任务失败留给卡片显示 */
-  }
-}
-
-export const OpcAuthPlugin = async (_ctx, rawOptions) => {
+export const OpcAuthPlugin = async (ctx, rawOptions) => {
   const options = normaliseOptions(rawOptions)
 
   // 额度卡片会被频繁刷新：成功 60 秒、失败 5 秒，同 key 并发合并。
   const usageCache = createUsageCache({ ttlMs: 60_000, failTtlMs: 5_000 })
 
-  // 邀请码策略：`~/.cache/magpie/opc-invite.json`（与别的插件共用同一套存储约定）
-  const inviteStore = createInviteStore(PROVIDER)
+  // ═══ 邀请码：双模式，由 magpie 的插件选项（供应商编辑器里的开关）决定 ═══
+  //
+  //   开关关（默认）  自动 —— 跟随「最后一个注册成功的新号」自己的码；
+  //                         一个都没有时，用内置默认码（作者的码）
+  //   开关开          首选 —— 挂到 magpie 账号页「首选」那个账号名下
+  //
+  // 三份缓存都在 `~/.cache/magpie/`（全可删）：
+  //   opc-invite-codes.json       每账号自己的码（首选模式用）
+  //   opc-invite-registered.json  最后注册的新号的码（自动模式用）
+  //   opc-invite.json             0.1.2 手填过的码，只当兜底
+  const inviteCodes = createInviteCodes(PROVIDER)
+  const registeredInvite = createRegisteredInvite(PROVIDER)
+  const rollingInvite = createInviteStore(PROVIDER)
 
   // 默认邀请码：选项 `inviteCode` 优先，其次内置的 DEFAULT_INVITE。
   // 「第一个号默认用我的」就靠它 —— 新用户第一次注册自动带上，不用自己填。
   const defaultInvite = () => String(options.inviteCode || DEFAULT_INVITE).trim().toUpperCase()
 
-  // 三档里的「自动」：用户存过码就用他存的那个，没有就回到默认码。
-  const effectiveInvite = () => inviteStore.read() || defaultInvite()
+  /**
+   * 开关每次现读 —— magpie 拨一下立刻生效，不重启 host。
+   * 读不到（老版本没有 option / 抛错）一律当关 = 自动，升级上来的行为不变。
+   */
+  const inviteFirstOn = () => {
+    try {
+      return ctx?.magpie?.option?.(PROVIDER, INVITE_FIRST_OPTION) === true
+    } catch {
+      return false
+    }
+  }
+
+  /** 这次注册该带谁的码 —— 唯一做决定的地方（文案也从这里取，不各写一份） */
+  const pickInvite = () =>
+    resolveInviteCode({
+      firstOn: inviteFirstOn(),
+      preferred: preferredAccount(PROVIDER),
+      codes: inviteCodes.readAll(),
+      registered: registeredInvite.read(),
+      rolling: rollingInvite.read(),
+      fallback: defaultInvite(),
+    })
+
+  /**
+   * 登录成功后的后台动作：建 API Key + 跑今天的每日任务 + 记下这个账号的邀请码。
+   *
+   * ⚠ 故意不 await：登录结果要立刻还给用户（铁律 2 的延伸），
+   *   而「建 key」和「发一条寄语」都是秒级网络动作，让它们在后台跑完就行。
+   *   失败不抛 —— 用户下次刷新卡片会看到具体缺什么。
+   *
+   * @param {object} [o]
+   * @param {boolean} [o.registered] 这次是**注册**成功（只有注册才写 registered 码）
+   */
+  const afterLogin = async (cookie, { registered = false, account } = {}) => {
+    const acct = { cookie, apiKey: "", uid: account?.uid || fingerprint(cookie) }
+    try {
+      await ensureModelKey(acct, { options })
+    } catch {
+      /* 建 key 失败不阻塞登录 */
+    }
+    try {
+      await runDailyTasks({ cookie, options, signature: "", accountKey: acct.uid })
+    } catch {
+      /* 任务失败留给卡片显示 */
+    }
+    // 顺手记下这个账号自己的邀请码：首选模式要用它，而 authorize 是同步的。
+    // ⚠ 普通登录**只更新 codes**，不碰 registered —— 否则重登旧号会把自动模式的
+    //   落点换回旧号（magicrew 踩过的坑）。
+    try {
+      const inv = await fetchInvite(cookie)
+      if (inv.code) {
+        const accountId = account?.name || ""
+        inviteCodes.note(acct.uid, { code: inv.code, accountId })
+        if (registered) registeredInvite.note({ code: inv.code, accountId })
+      }
+    } catch {
+      /* 邀请码不是登录的必要条件 */
+    }
+  }
 
   return {
     // ═══ ① 声明 provider ══════════════════════════════════════════════
@@ -122,6 +177,27 @@ export const OpcAuthPlugin = async (_ctx, rawOptions) => {
       //   package.json 的 magpie.icon → 插件列表那一行、插件详情页左上角
       icon: ICON,
       maxConcurrency: 4,
+
+      // ═══ 插件选项：供应商编辑器里的一排 Off/On 开关 ═════════════════
+      //
+      // 这是 magpie 自己的字段（auth.options，#2038）：每项都是 Off/On，
+      // 存在 `settings.PluginOptions[provider][key]`，插件用
+      // `input.magpie.option(provider, key)` 读，**拨一下立刻生效、不重启 host**。
+      //
+      // ⚠ 只能布尔（`map[string]map[string]bool`，设置接口入参也只有 `{provider, key, on}`）——
+      //   装不下字符串，也做不了「从 N 项里选一个」。要指定任意码只能改
+      //   `inviteCode` 选项（plugins.json 的 JSON 配置）或内置的 DEFAULT_INVITE。
+      options: [
+        {
+          key: INVITE_FIRST_OPTION,
+          label: "邀请码挂到首选账号",
+          description:
+            "开：新号注册挂在 magpie 账号页「首选」那个账号名下（用它的邀请码）。" +
+            "关：跟随上一个注册成功的新号，一个都没有时用内置默认码（默认）。" +
+            "两种模式点登录时都会写明这次挂在谁名下。",
+          default: false,
+        },
+      ],
 
       // ═══ ② 登录：两条粘贴路，运行时按形状识别 ═════════════════════
       //
@@ -153,9 +229,10 @@ export const OpcAuthPlugin = async (_ctx, rawOptions) => {
               async callback() {
                 try {
                   const result = await loginViaBrowser({})
-                  // 登录成功 → 后台把「API Key」和「今天的每日任务」一起收掉
+                  // 登录成功 → 后台把「API Key」「今天的每日任务」和「这个号的邀请码」一起收掉。
+                  // ⚠ 普通登录**不写** registered 码 —— 否则重登旧号会把自动模式的落点换回旧号。
                   if (result?.type === "success" && result.key) {
-                    void afterLogin(result.key, options)
+                    void afterLogin(result.key, { account: { uid: result.uid, name: result.accountId } })
                   }
                   return result
                 } catch (error) {
@@ -167,57 +244,48 @@ export const OpcAuthPlugin = async (_ctx, rawOptions) => {
         },
         // ── 方式二：邀请码注册（隔离窗口）→ 自动登录 ─────────────────
         //
-        // ⚠ 本站的邀请码**只影响注册**（`/register?invite=<code>`）：
-        //   老账号在登录 URL 上带码没有任何效果（实测）。所以这条路的语义是
-        //   「先问邀请码 → 用带码的注册页开一次性窗口 → 用户注册完 → 收 Cookie」。
+        // ⚠ 本站的邀请码**只影响注册**（`/register?invite=<code>`）：老账号在
+        //   登录 URL 上带码没有任何效果（实测），事后也补不了。
         //
-        // 三档（默认 → 自动 → 首选）：
-        //   · 第一次点开、什么都不填 → **默认码**（选项 `inviteCode` 或内置 DEFAULT_INVITE）
-        //   · 什么都不填 / 输入 1   → **自动**：沿用上次的码（没有上次就是默认码）
-        //   · 填别的码             → **首选**：用他填的，并存下来给下次当「自动」值
-        //   · 输入 - / none        → 不带邀请码，打开普通注册页（已有账号直接登录）
-        //
-        // 填的是**邀请人的码**（注册后你的账号挂在他名下）；自己的码在卡片上看
-        // （`GET /api/invite`，见 src/usage.mjs 的「我的邀请码」一格）。
-        makeInviteMethod({
+        // 0.1.3 起「用谁的码」不再是登录页上的文本框，而是供应商编辑器里
+        // 「插件选项 → 邀请码挂到首选账号」那个开关（magpie 的 auth.options）：
+        //   关（默认）= 自动：跟随上一个注册成功的新号；没有就用内置默认码
+        //   开        = 首选：挂到 magpie 账号页「首选」那个账号名下
+        // 点进来时 instructions 会写明这次挂在谁名下 —— 和实际用的码同源。
+        {
+          type: "oauth",
           label: "邀请码注册（隔离窗口）→ 自动登录",
-          mainMethod: {
-            // authorize 必须立刻返回（铁律 2）：只把「窗口会开」这件事交回去
-            async authorize() {
-              const picked = effectiveInvite()
-              const code = picked === INVITE_NONE ? "" : picked
-              const url = inviteRegisterUrl(code)
-              return {
-                url,
-                instructions: code
-                  ? `窗口打开的是带邀请码 ${code} 的注册页。在窗口里完成注册（或直接登录），` +
-                    "**别关窗口**，等它自己收工 —— 插件会从 CDP 收下登录态。"
-                  : "窗口打开的是注册页（不带邀请码）。已有账号就直接登录，**别关窗口**，" +
-                    "等它自己收工 —— 插件会从 CDP 收下登录态。",
-                method: "auto",
-                opened: true,
-                async callback() {
-                  try {
-                    const result = await loginViaBrowser({ url })
-                    // 登录成功 → 后台把「API Key」和「今天的每日任务」一起收掉
-                    if (result?.type === "success" && result.key) {
-                      void afterLogin(result.key, options)
-                    }
-                    return result
-                  } catch (error) {
-                    return { type: "failed", error: String(error?.message || error).slice(0, 400) }
+          // authorize 必须立刻返回（铁律 2）：只把「窗口会开」这件事交回去
+          async authorize() {
+            const picked = pickInvite()
+            const url = inviteRegisterUrl(picked.code)
+            return {
+              url,
+              instructions:
+                inviteNote({ ...picked, preferred: preferredAccount(PROVIDER) }) +
+                "。插件会开一个隔离的浏览器窗口（一次性 profile，不读也不写你日常浏览器的数据）。" +
+                "在窗口里完成注册（或直接登录），**别关窗口**，等它自己收工 —— 插件会从 CDP 收下登录态。",
+              method: "auto",
+              opened: true,
+              async callback() {
+                try {
+                  const result = await loginViaBrowser({ url })
+                  // 登录成功 → 后台把「API Key」「今天的每日任务」和「这个号的邀请码」一起收掉
+                  if (result?.type === "success" && result.key) {
+                    // 这条路是**注册**入口：注册成功的新号成为自动模式的下一个落点
+                    void afterLogin(result.key, {
+                      registered: true,
+                      account: { uid: result.uid, name: result.accountId },
+                    })
                   }
-                },
-              }
-            },
+                  return result
+                } catch (error) {
+                  return { type: "failed", error: String(error?.message || error).slice(0, 400) }
+                }
+              },
+            }
           },
-          followUps: [],
-          // 码只存用户手填的（source: 'chosen'）—— **不滚动**成自己账号的 referralCode：
-          // 下次再点这条登录方式时它要还是「邀请人的码」，而不是自己。
-          pick: (inputs) => pickInvite(inputs.invite, effectiveInvite()),
-          save: (code) => inviteStore.write(code, { source: "chosen" }),
-          current: () => effectiveInvite(),
-        }),
+        },
         {
           type: "api",
           label: "粘贴浏览器 Cookie（额度 + 模型通道 + 签到，一次齐）",
@@ -268,6 +336,10 @@ export const OpcAuthPlugin = async (_ctx, rawOptions) => {
             fetchMe(account.cookie).catch(() => null),
             usageCache.read(`${key}|invite`, () => fetchInvite(account.cookie)).catch(() => null),
           ])
+          // 顺手记下这个账号自己的邀请码：首选模式要用它，而 authorize 是同步的。
+          if (invite?.code) {
+            inviteCodes.note(account.uid || key, { code: invite.code, accountId: account.name || me?.username || "" })
+          }
           return buildUsage({
             dashboard,
             me,

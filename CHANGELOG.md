@@ -3,6 +3,29 @@
 本文件记录这个插件的每个发布版本。格式照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号照 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## 0.1.3 — 2026-11-03
+
+邀请码从「登录页填一个码」改成 **magpie 的插件选项开关** —— 0.1.2 那套四档文本框拆掉了。
+
+- **`auth.options` 新增 `invite-first`**（默认关）：供应商编辑器 →「插件选项」→
+  「邀请码挂到首选账号」。
+  - 关（默认）= **自动**：跟随上一个注册成功的新号；一个都没有时用内置默认码（作者的码）。
+  - 开 = **首选**：挂到 magpie 账号页「首选」那个账号自己的邀请码；它还没记下码时回落自动。
+  - 它是 magpie 的 `auth.options`（`settings.PluginOptions[provider][key]`），插件用
+    `input.magpie.option(provider, key)` 读，**拨一下立刻生效、不重启 host**。
+- **登录方式不再问码**：「邀请码注册（隔离窗口）→ 自动登录」直接按开关算码并打开注册页；
+  instructions 里写「本次邀请上级：…」，与真正拼进 URL 的码同源。
+- **只有注册成功那一刻才更新「自动」落点**（`opc-invite-registered.json`）——
+  普通登录 / 签到只更新账号自己的码（`opc-invite-codes.json`），
+  否则重登一个旧号会把下次注册挂回旧号（`magpie-magicrew-auth` 踩过的坑）。
+- **三份缓存**：`opc-invite-codes.json`（每账号自己的码，首选模式用）、
+  `opc-invite-registered.json`（最后注册的新号，自动模式用）、
+  `opc-invite.json`（0.1.2 手填过的码，只当兜底）。
+- 想指定任意码：`inviteCode` 选项（plugins.json 的 JSON 配置）或内置的 `DEFAULT_INVITE`。
+  magpie 的插件选项只存布尔，做不了「填一个码」的控件 —— 这正是拆文本框的原因。
+- `tests/invite.test.mjs` 重写为开关语义（自动 / 首选 / 回落 / 首选账号判定 / 文案同源），
+  `tests/mount.test.mjs` 补了 `auth.options` 声明与开关两态的锁。共 92 条断言。
+
 ## 0.1.2 — 2026-11-03
 
 邀请码从「用户自己填」变成「有默认值 + 四档语义」。

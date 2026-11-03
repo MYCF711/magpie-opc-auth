@@ -28,7 +28,7 @@ export const SDK = "@ai-sdk/openai-compatible"
 /** 网页 cookie 的有效期（服务端不滑动续期，实测响应里没有 Set-Cookie） */
 export const COOKIE_TTL_MS = 7 * 24 * 3600_000
 
-export const PLUGIN_VERSION = "0.1.2"
+export const PLUGIN_VERSION = "0.1.3"
 
 /** 请求必须带 UA：站点对 UA 敏感的接口会回「请求异常，请稍后再试」 */
 export const USER_AGENT = `magpie-opc-auth/${PLUGIN_VERSION}`

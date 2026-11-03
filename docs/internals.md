@@ -210,11 +210,36 @@ GET /api/invite                                  （Cookie）
 - 注册成功后，`GET /api/auth/me` 的 `user.referralCode` 就是自己的码，`user.invitedAt` 是被邀请的时间。
 
 **在登录 URL 上带码没有任何效果**：`/zh-cn/login?invite=…` 与不带完全一样（实测）。
-所以插件的邀请码走注册页 URL：`register?invite=<code>` —— 见 `src/invite.mjs` 与 `index.mjs` 的
-「邀请码注册（隔离窗口）→ 自动登录」。留空就打开普通注册页，已有账号的人可以在那里直接登录。
+所以「用谁的码」必须在打开注册页之前定下来。
+
+### 双模式：由 magpie 的插件选项决定（0.1.3 起）
+
+`auth.options` 声明一个布尔开关 `invite-first`（默认 `false`），插件用
+`input.magpie.option(provider, key)` 读 —— **每次现读**，拨一下立刻生效、不重启 host。
+
+| 开关 | 模式 | 码的来源 |
+|---|---|---|
+| 关（默认） | 自动 | `opc-invite-registered.json`（最后一个注册成功的新号）→ `opc-invite.json`（0.1.2 手填的）→ 内置 `DEFAULT_INVITE` |
+| 开 | 首选 | `opc-invite-codes.json` 里 magpie 账号页「首选」那个 uid 的码；没有就回落自动 |
+
+`resolveInviteCode()` 是**唯一做决定的地方**（纯函数）：登录方式拿到的码、以及
+instructions 里那句「本次邀请上级：…」，都从它出 —— 两边各写一份判断，早晚会出现
+「文案说 A、实际用 B」。
+
+**只有注册成功那一刻才写 `registered`**：自动模式的落点必须跟着「新注册的号」走，
+不能跟着「最近登录 / 签到的号」—— 重登旧号、签到轮到旧号，都会把下一次注册挂回旧号名下
+（`magpie-magicrew-auth` 0.3.6x 踩过的坑）。
+
+### 为什么不是「登录页填一个码」
+
+magpie 的插件选项值只存布尔（`settings.PluginOptions map[string]map[string]bool`，
+设置接口 `POST /api/settings/plugin-option` 的入参也只有 `{provider, key, on}`），
+装不下字符串。0.1.2 用的是登录页文本框 + `ask()` 多步问答；0.1.3 按上游插件
+（`magpie-magicrew-auth` 0.3.64+）的做法改成一个开关。想指定任意码只剩两条路：
+`inviteCode` 选项（plugins.json 的 JSON 配置）或内置 `DEFAULT_INVITE`。
 
 卡片上的「我的邀请码」一格来自同一个 `GET /api/invite`；只有 API Key 时读不到（401），
-这一格就不出现 —— 与「额度必须有 Cookie」是同一条原因。查找失败也不影响其它行。
+这一格就不出现 —— 与「额度必须有 Cookie」是同一条原因。
 
 ## 11. 已知限制
 

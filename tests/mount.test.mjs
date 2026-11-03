@@ -8,7 +8,7 @@
 
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -102,19 +102,17 @@ test("登录方式：隔离浏览器 + 邀请码注册 + 两条粘贴路", async
   assert.equal(ticket.method, "auto")
   assert.equal(typeof ticket.callback, "function")
 
-  // ② 邀请码注册：多步问答必须用 ask()，不是静态 prompts 数组（AGENTS 坑 26）；
-  //    authorize 同样要立刻返回，并且拼出来的注册页 URL 必须带着码。
+  // ② 邀请码注册：0.1.3 起没有「登录页填码」这一步（不再有 ask / prompts），
+  //    用谁的码由供应商编辑器里的开关决定；authorize 同样要立刻返回。
   const invite = methods[1]
   assert.equal(invite.type, "oauth")
   assert.match(invite.label, /邀请码/)
-  assert.equal(typeof invite.ask, "function")
-  assert.equal(typeof invite.prompts, "object", "面板列表要靠 prompts 显示第一个问题")
-  assert.equal((await invite.ask({})).key, "invite")
-  assert.equal(await invite.ask({ invite: "ABCD1234" }), null)
+  assert.equal(invite.ask, undefined, "开关版本不该再有多步问答")
   const startedInvite = Date.now()
-  const inviteTicket = await invite.authorize({ invite: "ABCD1234" })
+  const inviteTicket = await invite.authorize({})
   assert.ok(Date.now() - startedInvite < 500, "authorize() 不能等网络（铁律 2）")
-  assert.match(inviteTicket.url, /\/register\?invite=ABCD1234$/)
+  assert.ok(inviteTicket.url.endsWith("/register?invite=ELJQK8Q8"), "第一次 = 内置默认码")
+  assert.match(inviteTicket.instructions, /邀请上级/)
   assert.equal(inviteTicket.opened, true)
   assert.equal(typeof inviteTicket.callback, "function")
 
@@ -126,40 +124,75 @@ test("登录方式：隔离浏览器 + 邀请码注册 + 两条粘贴路", async
   }
 })
 
-test("邀请码注册：第一个号默认带默认码，之后自动 / 首选 / 不带码三档", async () => {
-  // 模拟「第一次安装」：策略文件还不存在
-  const policy = join(sandbox, ".cache", "magpie", "opc-invite.json")
-  rmSync(policy, { force: true })
+test("插件选项：声明了 invite-first 开关（默认关 = 自动）", async () => {
+  const plugin = await OpcAuthPlugin({ client: {} })
+  assert.ok(Array.isArray(plugin.auth.options), "auth.options 必须是数组")
+  const opt = plugin.auth.options.find((o) => o.key === "invite-first")
+  assert.ok(opt, "auth.options 里必须有 invite-first")
+  assert.equal(opt.default, false, "默认关 = 自动模式")
+  assert.equal(typeof opt.label, "string")
+  assert.ok(opt.description.length > 20, "描述要能说清两种模式")
+})
+
+test("邀请码：开关关 = 自动（上一个注册的新号优先，其次默认码）", async () => {
+  const cache = join(sandbox, ".cache", "magpie")
+  mkdirSync(cache, { recursive: true })
+  rmSync(join(cache, "opc-invite-registered.json"), { force: true })
+  rmSync(join(cache, "opc-invite.json"), { force: true })
 
   const plugin = await OpcAuthPlugin({ client: {} })
   const invite = plugin.auth.methods[1]
 
-  // ① 第一次、什么都不填 → 默认邀请码（DEFAULT_INVITE）
-  const first = await invite.authorize({})
-  assert.match(first.url, /\/register\?invite=ELJQK8Q8$/, "第一个号默认带作者的码")
+  // ① 什么都没注册过 → 内置默认码（「第一个号默认用我的」）
+  assert.ok((await invite.authorize({})).url.endsWith("/register?invite=ELJQK8Q8"))
 
-  // ② 填别人的码 → 首选：用他填的，并存下来
-  const chosen = await invite.authorize({ invite: "zzzz9999" })
-  assert.match(chosen.url, /\/register\?invite=ZZZZ9999$/, "填的码要归一化成大写")
+  // ② 上一个新号注册成功 → 下一个自动挂它（链式，就是自动模式的本意）
+  writeFileSync(join(cache, "opc-invite-registered.json"), JSON.stringify({ code: "new00003", accountId: "u2" }))
+  assert.ok((await invite.authorize({})).url.endsWith("/register?invite=NEW00003"))
 
-  // ③ 留空 / 输入 1 → 自动：沿用上次存下的码（不会被默认码覆盖回去）
-  assert.match((await invite.authorize({})).url, /invite=ZZZZ9999$/)
-  assert.match((await invite.authorize({ invite: "1" })).url, /invite=ZZZZ9999$/)
-
-  // ④ 输入 - → 不带邀请码，落普通注册页
-  const none = await invite.authorize({ invite: "-" })
-  assert.equal(none.url, "https://opc.fiime.cn/zh-cn/register", "- 要能显式关掉邀请码")
-  // ⑤ 而且「不带」会被记住：下一位留空时仍然不带
-  assert.equal((await invite.authorize({})).url, "https://opc.fiime.cn/zh-cn/register")
+  // ③ 0.1.2 手填过的码只在没有注册记录时兜底
+  rmSync(join(cache, "opc-invite-registered.json"), { force: true })
+  writeFileSync(join(cache, "opc-invite.json"), JSON.stringify({ code: "PREV0002" }))
+  assert.ok((await invite.authorize({})).url.endsWith("/register?invite=PREV0002"))
+  rmSync(join(cache, "opc-invite.json"), { force: true })
 })
 
-test("邀请码注册：选项 inviteCode 覆盖内置默认码", async () => {
-  const policy = join(sandbox, ".cache", "magpie", "opc-invite.json")
-  rmSync(policy, { force: true })
+test("邀请码：开关开 = 首选账号的码（拿不到就回落自动）", async () => {
+  const cache = join(sandbox, ".cache", "magpie")
+  const config = join(sandbox, ".config", "magpie")
+  mkdirSync(cache, { recursive: true })
+  mkdirSync(config, { recursive: true })
+
+  // 首选账号 + 它自己的码
+  writeFileSync(join(config, "logins.json"), JSON.stringify([{ agent: "plugin:opc", home: "opc" }]))
+  writeFileSync(join(config, "plugin-auth.json"), JSON.stringify({ opc: { uid: "u_me", accountId: "me" } }))
+  writeFileSync(join(cache, "opc-invite-codes.json"), JSON.stringify({ u_me: { code: "pref0001", accountId: "me" } }))
+  rmSync(join(cache, "opc-invite-registered.json"), { force: true })
+
+  const firstOn = () => true
+  const on = await OpcAuthPlugin({ client: {}, magpie: { option: (p, k) => p === "opc" && k === "invite-first" && firstOn() } })
+  assert.ok((await on.auth.methods[1].authorize({})).url.endsWith("/register?invite=PREF0001"))
+  assert.match((await on.auth.methods[1].authorize({})).instructions, /首选账号|me/)
+
+  // 开关开着、但首选账号还没记下码 → 回落自动（默认码）
+  writeFileSync(join(cache, "opc-invite-codes.json"), JSON.stringify({}))
+  assert.ok((await on.auth.methods[1].authorize({})).url.endsWith("/register?invite=ELJQK8Q8"))
+
+  // 拨回去（关）→ 立刻回到自动，不用重启
+  firstOn.off = true
+  const off = await OpcAuthPlugin({ client: {}, magpie: { option: () => false } })
+  assert.ok((await off.auth.methods[1].authorize({})).url.endsWith("/register?invite=ELJQK8Q8"))
+})
+
+test("邀请码：选项 inviteCode 覆盖内置默认码", async () => {
+  const cache = join(sandbox, ".cache", "magpie")
+  mkdirSync(cache, { recursive: true })
+  rmSync(join(cache, "opc-invite-registered.json"), { force: true })
+  rmSync(join(cache, "opc-invite.json"), { force: true })
 
   const plugin = await OpcAuthPlugin({ client: {} }, { inviteCode: "opc11111" })
   const ticket = await plugin.auth.methods[1].authorize({})
-  assert.match(ticket.url, /\/register\?invite=OPC11111$/)
+  assert.ok(ticket.url.endsWith("/register?invite=OPC11111"))
 })
 
 test("refresh() 不续期也不覆盖字段", async () => {
