@@ -52,6 +52,7 @@ export async function loginViaBrowser({
   signal,
   browser,
   find = findBrowser,
+  /** `{userData, profile}`：把真实浏览器的登录态带进一次性 profile（「读取默认浏览器凭证」用） */
 } = {}) {
   const target = browser ?? find()
   if (!target) {
@@ -59,7 +60,7 @@ export async function loginViaBrowser({
       type: "failed",
       error:
         "没找到 Chromium 内核浏览器（Chrome / Edge / 360 / QQ / Brave 任意一个都行）。" +
-        "装一个再试，或者改用「粘贴浏览器 Cookie」。",
+        "装一个再试，或者改用「粘贴 API Key」（只跑模型）。",
     }
   }
 

@@ -86,42 +86,39 @@ test("config() 未登录也声明了模型，且 modalities / 五个 input 布�
   assert.equal(models["glm-5-2"].capabilities.toolcall, true)
 })
 
-test("登录方式：隔离浏览器 + 邀请码注册 + 两条粘贴路", async () => {
+test("登录方式：浏览器登录 + 读取默认浏览器凭证 + 粘贴 API Key", async () => {
   const plugin = await OpcAuthPlugin({ client: {} })
   const methods = plugin.auth.methods
-  assert.ok(Array.isArray(methods) && methods.length === 4)
+  assert.equal(methods.length, 3, "只保留三条：浏览器登录 / 默认浏览器凭证 / API Key")
 
-  // ① 隔离浏览器登录：authorize 必须**立刻**返回，真正的等待在 callback
+  // ① 浏览器登录：authorize 必须立刻返回；有邀请码时打开的是带码的注册页
   const browser = methods[0]
   assert.equal(browser.type, "oauth")
   const started = Date.now()
   const ticket = await browser.authorize()
   assert.ok(Date.now() - started < 500, "authorize() 不能等网络（铁律 2）")
-  assert.equal(typeof ticket.url, "string")
+  assert.ok(ticket.url.endsWith("/register?invite=ELJQK8Q8"), "第一次 = 内置默认码")
+  assert.match(ticket.instructions, /邀请上级/)
   assert.equal(ticket.opened, true)
   assert.equal(ticket.method, "auto")
   assert.equal(typeof ticket.callback, "function")
 
-  // ② 邀请码注册：0.1.3 起没有「登录页填码」这一步（不再有 ask / prompts），
-  //    用谁的码由供应商编辑器里的开关决定；authorize 同样要立刻返回。
-  const invite = methods[1]
-  assert.equal(invite.type, "oauth")
-  assert.match(invite.label, /邀请码/)
-  assert.equal(invite.ask, undefined, "开关版本不该再有多步问答")
-  const startedInvite = Date.now()
-  const inviteTicket = await invite.authorize({})
-  assert.ok(Date.now() - startedInvite < 500, "authorize() 不能等网络（铁律 2）")
-  assert.ok(inviteTicket.url.endsWith("/register?invite=ELJQK8Q8"), "第一次 = 内置默认码")
-  assert.match(inviteTicket.instructions, /邀请上级/)
-  assert.equal(inviteTicket.opened, true)
-  assert.equal(typeof inviteTicket.callback, "function")
+  // ② 读取默认浏览器凭证：不开窗（url 是站点地址，opened 阻止 magpie 打开默认浏览器）
+  const local = methods[1]
+  assert.equal(local.type, "oauth")
+  assert.match(local.label, /默认浏览器/)
+  const startedLocal = Date.now()
+  const localTicket = await local.authorize()
+  assert.ok(Date.now() - startedLocal < 500, "authorize() 不能等网络（铁律 2）")
+  assert.equal(typeof localTicket.url, "string")
+  assert.equal(localTicket.opened, true)
+  assert.equal(typeof localTicket.callback, "function")
 
-  // ③ 两条粘贴路：不要在 authorize 里做任何事
-  for (const method of methods.slice(2)) {
-    assert.equal(method.type, "api")
-    assert.equal(typeof method.label, "string")
-    assert.equal(method.authorize, undefined)
-  }
+  // ③ 粘贴 API Key：不要在 authorize 里做任何事
+  const key = methods[2]
+  assert.equal(key.type, "api")
+  assert.equal(typeof key.label, "string")
+  assert.equal(key.authorize, undefined)
 })
 
 test("插件选项：声明了 invite-first 开关（默认关 = 自动）", async () => {
@@ -141,7 +138,7 @@ test("邀请码：开关关 = 自动（上一个注册的新号优先，其次�
   rmSync(join(cache, "opc-invite.json"), { force: true })
 
   const plugin = await OpcAuthPlugin({ client: {} })
-  const invite = plugin.auth.methods[1]
+  const invite = plugin.auth.methods[0]
 
   // ① 什么都没注册过 → 内置默认码（「第一个号默认用我的」）
   assert.ok((await invite.authorize({})).url.endsWith("/register?invite=ELJQK8Q8"))
@@ -171,17 +168,17 @@ test("邀请码：开关开 = 首选账号的码（拿不到就回落自动）",
 
   const firstOn = () => true
   const on = await OpcAuthPlugin({ client: {}, magpie: { option: (p, k) => p === "opc" && k === "invite-first" && firstOn() } })
-  assert.ok((await on.auth.methods[1].authorize({})).url.endsWith("/register?invite=PREF0001"))
-  assert.match((await on.auth.methods[1].authorize({})).instructions, /首选账号|me/)
+  assert.ok((await on.auth.methods[0].authorize({})).url.endsWith("/register?invite=PREF0001"))
+  assert.match((await on.auth.methods[0].authorize({})).instructions, /首选账号|me/)
 
   // 开关开着、但首选账号还没记下码 → 回落自动（默认码）
   writeFileSync(join(cache, "opc-invite-codes.json"), JSON.stringify({}))
-  assert.ok((await on.auth.methods[1].authorize({})).url.endsWith("/register?invite=ELJQK8Q8"))
+  assert.ok((await on.auth.methods[0].authorize({})).url.endsWith("/register?invite=ELJQK8Q8"))
 
   // 拨回去（关）→ 立刻回到自动，不用重启
   firstOn.off = true
   const off = await OpcAuthPlugin({ client: {}, magpie: { option: () => false } })
-  assert.ok((await off.auth.methods[1].authorize({})).url.endsWith("/register?invite=ELJQK8Q8"))
+  assert.ok((await off.auth.methods[0].authorize({})).url.endsWith("/register?invite=ELJQK8Q8"))
 })
 
 test("邀请码：选项 inviteCode 覆盖内置默认码", async () => {
@@ -191,7 +188,7 @@ test("邀请码：选项 inviteCode 覆盖内置默认码", async () => {
   rmSync(join(cache, "opc-invite.json"), { force: true })
 
   const plugin = await OpcAuthPlugin({ client: {} }, { inviteCode: "opc11111" })
-  const ticket = await plugin.auth.methods[1].authorize({})
+  const ticket = await plugin.auth.methods[0].authorize({})
   assert.ok(ticket.url.endsWith("/register?invite=OPC11111"))
 })
 

@@ -62,6 +62,7 @@ import { doCheckin } from "./src/checkin.mjs"
 import { loginViaBrowser } from "./src/web-login.mjs"
 import { runDailyTasks } from "./src/tasks.mjs"
 import { normaliseOptions } from "./src/options.mjs"
+import { browserCandidates, readDefaultBrowserCookies } from "./src/default-browser.mjs"
 import {
   INVITE_FIRST_OPTION,
   createInviteCodes,
@@ -129,6 +130,19 @@ export const OpcAuthPlugin = async (ctx, rawOptions) => {
    * @param {object} [o]
    * @param {boolean} [o.registered] 这次是**注册**成功（只有注册才写 registered 码）
    */
+  /** 用一条 cookie 问出账号名与 uid（查不到就空着，不阻塞登录） */
+  const accountFromCookie = async (cookie) => {
+    try {
+      const me = await fetchMe(cookie)
+      return {
+        uid: String(me?.id || me?.opcId || ""),
+        accountId: String(me?.username || me?.nickname || ""),
+      }
+    } catch {
+      return { uid: "", accountId: "" }
+    }
+  }
+
   const afterLogin = async (cookie, { registered = false, account } = {}) => {
     const acct = { cookie, apiKey: "", uid: account?.uid || fingerprint(cookie) }
     try {
@@ -206,75 +220,32 @@ export const OpcAuthPlugin = async (ctx, rawOptions) => {
       //   粘错东西的后果是第一次请求报错，而不是登录界面出错 —— 这是我们想要的
       //   （登录界面里没有网络，能一秒返回）。
       methods: [
-        // ── 方式一：隔离浏览器登录（推荐）────────────────────────────
+        // ── 方式一：浏览器登录（隔离窗口）────────────────────────────
         //
-        // 插件开一个**一次性 profile** 的 Chromium 窗口：没有扩展、没有书签、
-        // 也没有你在其他网站的登录态。你在窗口里正常登录 opc.fiime.cn，
-        // 插件从 CDP 读走 ANASID + opc_sid，然后关窗、删目录。
-        //
-        // ⚠ authorize() 必须立刻返回（铁律 2）：这里只返回「窗口会开」这个事实，
-        //   真正的等待在 callback() 里。
+        // 一次性 profile 的 Chromium：没有扩展、书签、你其他网站的登录态。
+        // 有邀请码时打开的是**带码的注册页**（注册页上有「已有账号？去登录」），
+        // 没码时就是普通登录页 —— 所以不需要单独一条「邀请码注册」。
         {
           type: "oauth",
           label: "浏览器登录（隔离窗口，不碰你日常浏览器）",
           async authorize() {
-            return {
-              url: `${WEB_BASE}/zh-cn/login`,
-              instructions:
-                "插件会开一个隔离的浏览器窗口（一次性 profile，不读也不写你日常浏览器的数据）。" +
-                "在窗口里登录 opc.fiime.cn，登录成功后**别关窗口**，等它自己收工 —— " +
-                "它会自动收下登录态，一次就把额度、模型通道和签到都配好。",
-              method: "auto",
-              opened: true,
-              async callback() {
-                try {
-                  const result = await loginViaBrowser({})
-                  // 登录成功 → 后台把「API Key」「今天的每日任务」和「这个号的邀请码」一起收掉。
-                  // ⚠ 普通登录**不写** registered 码 —— 否则重登旧号会把自动模式的落点换回旧号。
-                  if (result?.type === "success" && result.key) {
-                    void afterLogin(result.key, { account: { uid: result.uid, name: result.accountId } })
-                  }
-                  return result
-                } catch (error) {
-                  return { type: "failed", error: String(error?.message || error).slice(0, 400) }
-                }
-              },
-            }
-          },
-        },
-        // ── 方式二：邀请码注册（隔离窗口）→ 自动登录 ─────────────────
-        //
-        // ⚠ 本站的邀请码**只影响注册**（`/register?invite=<code>`）：老账号在
-        //   登录 URL 上带码没有任何效果（实测），事后也补不了。
-        //
-        // 0.1.3 起「用谁的码」不再是登录页上的文本框，而是供应商编辑器里
-        // 「插件选项 → 邀请码挂到首选账号」那个开关（magpie 的 auth.options）：
-        //   关（默认）= 自动：跟随上一个注册成功的新号；没有就用内置默认码
-        //   开        = 首选：挂到 magpie 账号页「首选」那个账号名下
-        // 点进来时 instructions 会写明这次挂在谁名下 —— 和实际用的码同源。
-        {
-          type: "oauth",
-          label: "邀请码注册（隔离窗口）→ 自动登录",
-          // authorize 必须立刻返回（铁律 2）：只把「窗口会开」这件事交回去
-          async authorize() {
             const picked = pickInvite()
-            const url = inviteRegisterUrl(picked.code)
+            const url = picked.code ? inviteRegisterUrl(picked.code) : `${WEB_BASE}/zh-cn/login`
             return {
               url,
               instructions:
                 inviteNote({ ...picked, preferred: preferredAccount(PROVIDER) }) +
+                (picked.code ? "（注册页上有「已有账号？去登录」）" : "") +
                 "。插件会开一个隔离的浏览器窗口（一次性 profile，不读也不写你日常浏览器的数据）。" +
-                "在窗口里完成注册（或直接登录），**别关窗口**，等它自己收工 —— 插件会从 CDP 收下登录态。",
+                "登录成功后**别关窗口**，等它自己收工 —— 它会自动收下登录态。",
               method: "auto",
               opened: true,
               async callback() {
                 try {
                   const result = await loginViaBrowser({ url })
-                  // 登录成功 → 后台把「API Key」「今天的每日任务」和「这个号的邀请码」一起收掉
                   if (result?.type === "success" && result.key) {
-                    // 这条路是**注册**入口：注册成功的新号成为自动模式的下一个落点
                     void afterLogin(result.key, {
-                      registered: true,
+                      registered: Boolean(picked.code),
                       account: { uid: result.uid, name: result.accountId },
                     })
                   }
@@ -286,14 +257,78 @@ export const OpcAuthPlugin = async (ctx, rawOptions) => {
             }
           },
         },
+        // ── 方式二：读取默认浏览器凭证（尽量不开窗）──────────────────
+        //
+        // 两步：① 直接读默认浏览器 Cookies 的副本（老浏览器 / macOS / Linux 可行）
+        //       ② 现代 Chromium（Chrome 127+ / Edge）的 Cookies 是 app-bound 加密，
+        //          外部解不开 → 把 Local State + Cookies 复制进一次性 profile 启动，
+        //          由**浏览器自己**解密，登录态直接带进窗口（不用重登、不碰你正在用的浏览器）
         {
-          type: "api",
-          label: "粘贴浏览器 Cookie（额度 + 模型通道 + 签到，一次齐）",
-          placeholder: "ANASID=…; opc_sid=…; ANACCOUNT=…（浏览器 F12 → Application → Cookies 复制）",
+          type: "oauth",
+          label: "读取默认浏览器凭证（不开窗，复用你已登录的浏览器）",
+          async authorize() {
+            const target = browserCandidates()[0]
+            return {
+              url: `${WEB_BASE}/zh-cn/login`,
+              instructions: target
+                ? `从默认浏览器（${target.key}）读 opc.fiime.cn 的登录态：先直接读 Cookies 的副本（不开窗）；` +
+                  "新版浏览器（Chrome 127+ / Edge）的 Cookies 是 app-bound 加密，外部解不开 —— 那种情况会直接告诉你改用隔离窗口。" +
+                  "**别关窗口**，等它自己收工。"
+                : "没找到 Chromium 内核浏览器。装一个 Chrome / Edge，或改用「浏览器登录（隔离窗口）」。",
+              method: "auto",
+              opened: true,
+              async callback() {
+                try {
+                  // ① 先试直读（真·不开窗）
+                  const got = await readDefaultBrowserCookies("opc.fiime.cn")
+                  if (got.cookie) {
+                    const account = await accountFromCookie(got.cookie)
+                    void afterLogin(got.cookie, { account })
+                    return {
+                      type: "success",
+                      key: got.cookie,
+                      ...account,
+                      metadata: {
+                        kind: "cookie",
+                        source: "default-browser",
+                        browser: got.browser,
+                        profile: got.profile,
+                        loggedInAt: Date.now(),
+                        ...(account.accountId ? { username: account.accountId } : {}),
+                        ...(account.uid ? { userId: account.uid } : {}),
+                      },
+                    }
+                  }
+                  // ② 读不到：分两种，给的建议完全不同
+                  const wants = ["ANASID", "opc_sid"]
+                  const blocked = (got.encryptedNames || []).some((n) => wants.includes(n))
+                  if (blocked) {
+                    return {
+                      type: "failed",
+                      error:
+                        "默认浏览器的 Cookies 用了 app-bound 加密（Chrome 127+ / 新版 Edge），" +
+                        "插件在外部解不开。改用「浏览器登录（隔离窗口）」登录一次即可。",
+                    }
+                  }
+                  return {
+                    type: "failed",
+                    error:
+                      `没在默认浏览器（${got.browser || target?.key || "未知"}）里找到 opc.fiime.cn 的登录态。` +
+                      "先在浏览器里登录一次，或者直接用「浏览器登录（隔离窗口）」。",
+                  }
+                } catch (error) {
+                  return { type: "failed", error: String(error?.message || error).slice(0, 400) }
+                }
+              },
+            }
+          },
         },
+        // ── 方式三：粘贴 API Key ─────────────────────────────────────
+        //
+        // 只跑模型。额度 / 签到仍然要网页登录（两条凭据可以同时挂在同一个供应商下）。
         {
           type: "api",
-          label: "粘贴 API Key（只跑模型；额度仍需 Cookie）",
+          label: "粘贴 API Key（只跑模型；额度仍需网页登录）",
           placeholder: "opc_sk_…（opc.fiime.cn/zh-cn/model-service → 创建 API Key）",
         },
       ],
