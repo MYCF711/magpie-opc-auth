@@ -102,7 +102,7 @@ GET /api/model-service/v1/models        带 Key     → 200 {"object":"list","da
 
 ```
 POST /api/model-service/keys   {"name":"magpie-opc-auth"}
-→ {"key":{"id":"msk_…","masked":"opc_sk_ab12••••2386"},"secret":"opc_sk_ab12…"}
+→ {"key":{"id":"msk_…","masked":"opc_sk_ab12••••cd34"},"secret":"opc_sk_ab12…"}
 ```
 
 secret 写进 `~/.cache/magpie/magpie-opc-auth__<账号指纹>.json`（文件名带账号 —— AGENTS 坑 16）。
