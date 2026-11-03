@@ -8,9 +8,10 @@
 ```
 额度      Token 钱包（用一点少一点，不会每日重置）+ 每日消耗上限 1 亿（北京时间 0 点重置）
 模型      17 个聊天模型（站点 /v1/models 实测 22 条，其中 5 条是图像/视频生成）
-登录方式  3 种（隔离浏览器窗口 / 粘贴浏览器 Cookie / 粘贴 API Key）
+登录方式  4 种（隔离浏览器窗口 / 邀请码注册（隔离窗口）/ 粘贴浏览器 Cookie / 粘贴 API Key）
 跑模型要  一把 API Key（`opc_sk_…`）——「粘贴 Cookie」那条路插件会自己换一把
 签到      寄语墙任务：每天 1 条 ≥20 字寄语，+1000 万 Token（累计上限 30 次）
+邀请码    自己的码和邀请统计也上卡片（`GET /api/invite`）：已邀人数 / 付费转化 / Token 奖励
 ```
 
 > ⚠ **这个站点的两个面是两套鉴权，缺一条就有一半功能是空的。**
@@ -78,6 +79,9 @@
   「已用尽 · N 小时后恢复」，其余时候连「上限」两个字都不出现。
 - **今日任务进度**：4 个每日任务（寄语墙 / 搭子广场发帖 / 资源中心项目 / 需求中心）
   领了几个、还剩哪些，一行文字写在卡片上。
+- **自己的邀请码上卡片**：一格「邀请码」显示 `GET /api/invite` 读到的码，
+  有邀请记录时后面跟着「已邀 N 人 · 付费 N · 奖励 N Token」；
+  查不到就整格不出现（不影响别的行）。分享用的注册链接是 `/register?invite=<code>`。
 - **17 个聊天模型，能力照模型自己的声明**：`image` / `toolcall` 来自站点 `/v1/models` 的
   `modalities` 与 `capabilities`，不是猜的；`deepseek-v4-pro` 这类能收图的不会被标成纯文本，
   `glm-5-2` 这类纯文本的也不会被误标成能收图。
@@ -129,6 +133,25 @@
 不替你发帖 —— 那些是公开内容，交给用户自己决定。`requirement_publish` 还需要实名认证，
 没通过时站点会直接回 `{"error":"请先完成实名认证"}`。
 
+## 邀请
+
+站点的邀请机制是**注册时**带码：`https://opc.fiime.cn/register?invite=<code>`，
+注册完成后你会挂到邀请人名下。**老账号在登录 URL 上带码没有任何效果**（实测），
+事后也补不了 —— 这也是插件把邀请码做成「主登录的前置问题」而不是登录参数的原因。
+
+两个方向，插件管的不一样：
+
+| 方向 | 用哪条路 | 插件做什么 |
+|---|---|---|
+| **我要用别人的码注册** | 登录方式选「邀请码注册（隔离窗口）→ 自动登录」 | 先问码 → 用带码的注册页开一次性窗口 → 你在窗口里注册完成 → 插件收下 Cookie |
+| **我要分享自己的码** | 登录之后看卡片 | 一格「邀请码」，显示码 + 已邀人数 / 付费转化 / Token 奖励 |
+
+- 邀请码策略存在 `~/.cache/magpie/opc-invite.json`：`0` / 留空 / `1` 沿用上一次的码，其它当新码。
+- **不会**把你自己账号的 `referralCode` 滚进这个策略 —— 那样下次点「邀请码注册」时
+  它会变成你自己的码，填进去等于自己邀请自己（无效）。
+- 「重新生成邀请码」（30 天一次）是网页端的写操作，插件不替你做。
+- 卡片的邀请码需要 **Cookie** 凭据；只有 API Key 时这一格不出现（API Key 打不了 `/api/invite`）。
+
 ## 安装
 
 在 magpie 里：**插件 → 添加插件 → 填仓库地址**。
@@ -136,6 +159,7 @@
 ```bash
 magpie plugin add github:MYCF711/magpie-opc-auth
 magpie plugin login opc      # 选「浏览器登录（隔离窗口）」，在弹出来的窗口里登录一次
+                             # 新用户也可以选「邀请码注册（隔离窗口）→ 自动登录」
 magpie quota opc             # 看 Token 总余额
 magpie models                # 确认 opc/* 模型出现在列表里
 
@@ -188,12 +212,17 @@ magpie models                # 确认 opc/* 模型出现在列表里
 **7. 这些模型倍率会不会影响卡片上的余额？**
 不会。余额是站点自己扣的，插件只读。倍率只影响同一句话在不同模型上扣多少。
 
+**8. 邀请码填在哪？我在登录页 URL 上加 `?invite=` 怎么没用？**
+邀请码只在**注册**时生效（`/register?invite=<code>`），老账号带码没有任何效果，事后也补不了。
+用登录方式里的「邀请码注册（隔离窗口）→ 自动登录」，或者自己打开注册页带码注册。
+想看**自己**的邀请码就在卡片上找「邀请码」那一格（需要 Cookie 凭据）。
+
 ## 参考源
 
 | 来源 | 用了什么 |
 |---|---|
-| FiimeOPC 站点前端（`/assets/ModelService-*.js`、`MessageWall-*.js`） | 接口路径、请求体字段、claim 的 `{task}` 形状、寄语 `check` → `publish` 两段流程 |
-| 真实账号实测（2026-11-03） | `wallet` / `usage` / `benefits` 字段、模型 22 条与能力、`opc_sk_` 前缀、cookie 7 天、签到 30 次上限、409 已领取 |
+| FiimeOPC 站点前端（`/assets/ModelService-*.js`、`MessageWall-*.js`、`index-*.js` 的 `secInvite*` 文案） | 接口路径、请求体字段、claim 的 `{task}` 形状、寄语 `check` → `publish` 两段流程、注册页的 `inviteCode` 字段 |
+| 真实账号实测（2026-11-03） | `wallet` / `usage` / `benefits` 字段、模型 22 条与能力、`opc_sk_` 前缀、cookie 7 天、签到 30 次上限、409 已领取、`/api/invite` 的 `code` / `url` / `invitedCount` / `paidCount` / `tokenReward*` |
 | [`MYCF711/magpie-plugin-scaffold`](https://github.com/MYCF711/magpie-plugin-scaffold) | 仓库结构、九钩子装配、`src/quota.mjs` / `usage-cache.mjs` / `model-context.mjs`、检查与打分脚本 |
 
 实现细节、协议取证与「为什么这么写」在 [docs/internals.md](./docs/internals.md)。

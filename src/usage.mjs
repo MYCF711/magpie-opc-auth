@@ -52,8 +52,9 @@ export function benefitSummary(dashboard) {
  * @param {object} p.dashboard  /api/model-service 的返回
  * @param {object} p.me         /api/auth/me 的返回（可空）
  * @param {string} p.accountName
+ * @param {object} [p.invite]   /api/invite 的返回（可空；查不到就不显示这一格）
  */
-export function buildUsage({ dashboard, me, accountName }) {
+export function buildUsage({ dashboard, me, accountName, invite }) {
   const wallet = dashboard?.wallet || {}
   const used = dashboard?.usage || {}
   const balance = Number(wallet.balance) || 0
@@ -103,6 +104,29 @@ export function buildUsage({ dashboard, me, accountName }) {
         aside: true,
         text: true,
         display: summary,
+      }),
+    )
+  }
+
+  // ── 我的邀请码（GET /api/invite）────────────────────────────────
+  //
+  // 站点只给「邀请别人的码」，不给「邀请统计」以外的任何东西：
+  // 码 8 位、链接形如 /register?invite=<code>、奖励按被邀请人注册/付费累计。
+  // 查不到（没有 cookie、接口抖动、账号被封）就整格不出现 —— 卡片不能因为
+  // 一个只读信息而少一行主要额度。
+  const inviteCode = String(invite?.code ?? "").trim()
+  if (inviteCode) {
+    const bits = [`邀请码 ${inviteCode}`]
+    if (invite.invitedCount) bits.push(`已邀 ${invite.invitedCount}`)
+    if (invite.paidCount) bits.push(`付费 ${invite.paidCount}`)
+    if (invite.tokenRewardTotal) bits.push(`奖励 ${fmt(invite.tokenRewardTotal)} Token`)
+    windows.push(
+      usageWindow({
+        name: "邀请码",
+        used: 0,
+        aside: true,
+        text: true,
+        display: bits.join(" · "),
       }),
     )
   }

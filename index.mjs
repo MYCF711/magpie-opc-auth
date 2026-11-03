@@ -46,7 +46,8 @@ import {
   WEB_BASE,
 } from "./src/context.mjs"
 import { createUsageCache } from "./src/usage-cache.mjs"
-import { fetchDashboard, fetchMe, fetchModelList } from "./src/api.mjs"
+import { fetchDashboard, fetchInvite, fetchMe, fetchModelList, inviteRegisterUrl } from "./src/api.mjs"
+import { createInviteStore, makeInviteMethod, resolveInvite } from "./src/invite.mjs"
 import {
   ensureModelKey,
   fingerprint,
@@ -88,6 +89,9 @@ export const OpcAuthPlugin = async (_ctx, rawOptions) => {
 
   // 额度卡片会被频繁刷新：成功 60 秒、失败 5 秒，同 key 并发合并。
   const usageCache = createUsageCache({ ttlMs: 60_000, failTtlMs: 5_000 })
+
+  // 邀请码策略：`~/.cache/magpie/opc-invite.json`（与别的插件共用同一套存储约定）
+  const inviteStore = createInviteStore(PROVIDER)
 
   return {
     // ═══ ① 声明 provider ══════════════════════════════════════════════
@@ -153,6 +157,53 @@ export const OpcAuthPlugin = async (_ctx, rawOptions) => {
             }
           },
         },
+        // ── 方式二：邀请码注册（隔离窗口）→ 自动登录 ─────────────────
+        //
+        // ⚠ 本站的邀请码**只影响注册**（`/register?invite=<code>`）：
+        //   老账号在登录 URL 上带码没有任何效果（实测）。所以这条路的语义是
+        //   「先问邀请码 → 用带码的注册页开一次性窗口 → 用户注册完 → 收 Cookie」。
+        //
+        // 填的是**邀请人的码**（注册后你的账号挂在他名下）；自己的码在卡片上看
+        // （`GET /api/invite`，见 src/usage.mjs 的「我的邀请码」一格）。
+        // 留空就打开普通注册页 —— 已有账号的人可以在这里登录，与「方式一」等价。
+        makeInviteMethod({
+          label: "邀请码注册（隔离窗口）→ 自动登录",
+          mainMethod: {
+            // authorize 必须立刻返回（铁律 2）：只把「窗口会开」这件事交回去
+            async authorize() {
+              const code = inviteStore.read()
+              const url = inviteRegisterUrl(code)
+              return {
+                url,
+                instructions: code
+                  ? `窗口打开的是带邀请码 ${code} 的注册页。在窗口里完成注册（或直接登录），` +
+                    "**别关窗口**，等它自己收工 —— 插件会从 CDP 收下登录态。"
+                  : "窗口打开的是注册页（没有邀请码）。已有账号就直接登录，**别关窗口**，" +
+                    "等它自己收工 —— 插件会从 CDP 收下登录态。",
+                method: "auto",
+                opened: true,
+                async callback() {
+                  try {
+                    const result = await loginViaBrowser({ url })
+                    // 登录成功 → 后台把「API Key」和「今天的每日任务」一起收掉
+                    if (result?.type === "success" && result.key) {
+                      void afterLogin(result.key, options)
+                    }
+                    return result
+                  } catch (error) {
+                    return { type: "failed", error: String(error?.message || error).slice(0, 400) }
+                  }
+                },
+              }
+            },
+          },
+          followUps: [],
+          // 码只存用户手填的（source: 'chosen'）—— **不滚动**成自己账号的 referralCode：
+          // 下次再点这条登录方式时它要还是「邀请人的码」，而不是自己。
+          pick: (inputs) => resolveInvite(inputs.invite, inviteStore.read()).trim().toUpperCase(),
+          save: (code) => inviteStore.write(code, { source: "chosen" }),
+          current: () => inviteStore.read(),
+        }),
         {
           type: "api",
           label: "粘贴浏览器 Cookie（额度 + 模型通道 + 签到，一次齐）",
@@ -197,10 +248,16 @@ export const OpcAuthPlugin = async (_ctx, rawOptions) => {
         const key = String(account.uid || fingerprint(account.raw))
         try {
           const dashboard = await usageCache.read(key, () => fetchDashboard(account.cookie))
-          const me = await fetchMe(account.cookie).catch(() => null)
+          // 账号名与邀请码都是「有更好、没有也照样出卡」的只读信息：
+          // 各自失败就各自空着，绝不让主要额度跟着一起挂掉。
+          const [me, invite] = await Promise.all([
+            fetchMe(account.cookie).catch(() => null),
+            usageCache.read(`${key}|invite`, () => fetchInvite(account.cookie)).catch(() => null),
+          ])
           return buildUsage({
             dashboard,
             me,
+            invite,
             accountName: account.name || me?.username || "",
           })
         } catch (error) {

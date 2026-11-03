@@ -8,9 +8,18 @@
 
 import test from "node:test"
 import assert from "node:assert/strict"
+import { mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
-import * as entry from "../index.mjs"
-import { _internal, OpcAuthPlugin } from "../index.mjs"
+// 隔离 HOME：邀请码那条登录方式的 `authorize()` 会写 ~/.cache/magpie/opc-invite.json，
+// 不能污染真实目录。环境变量必须在 index.mjs 被求值**之前**设好，所以这里用动态 import。
+const sandbox = mkdtempSync(join(tmpdir(), "opc-mount-"))
+process.env.HOME = sandbox
+process.env.USERPROFILE = sandbox
+
+const entry = await import("../index.mjs")
+const { _internal, OpcAuthPlugin } = entry
 
 /** 一条形状合法的 Cookie（不会打任何网络请求） */
 // 假值：只用来验形状，不是真凭证
@@ -77,10 +86,10 @@ test("config() 未登录也声明了模型，且 modalities / 五个 input 布�
   assert.equal(models["glm-5-2"].capabilities.toolcall, true)
 })
 
-test("登录方式：一条隔离浏览器 + 两条粘贴路", async () => {
+test("登录方式：隔离浏览器 + 邀请码注册 + 两条粘贴路", async () => {
   const plugin = await OpcAuthPlugin({ client: {} })
   const methods = plugin.auth.methods
-  assert.ok(Array.isArray(methods) && methods.length === 3)
+  assert.ok(Array.isArray(methods) && methods.length === 4)
 
   // ① 隔离浏览器登录：authorize 必须**立刻**返回，真正的等待在 callback
   const browser = methods[0]
@@ -93,8 +102,24 @@ test("登录方式：一条隔离浏览器 + 两条粘贴路", async () => {
   assert.equal(ticket.method, "auto")
   assert.equal(typeof ticket.callback, "function")
 
-  // ② 两条粘贴路：不要在 authorize 里做任何事
-  for (const method of methods.slice(1)) {
+  // ② 邀请码注册：多步问答必须用 ask()，不是静态 prompts 数组（AGENTS 坑 26）；
+  //    authorize 同样要立刻返回，并且拼出来的注册页 URL 必须带着码。
+  const invite = methods[1]
+  assert.equal(invite.type, "oauth")
+  assert.match(invite.label, /邀请码/)
+  assert.equal(typeof invite.ask, "function")
+  assert.equal(typeof invite.prompts, "object", "面板列表要靠 prompts 显示第一个问题")
+  assert.equal((await invite.ask({})).key, "invite")
+  assert.equal(await invite.ask({ invite: "ABCD1234" }), null)
+  const startedInvite = Date.now()
+  const inviteTicket = await invite.authorize({ invite: "ABCD1234" })
+  assert.ok(Date.now() - startedInvite < 500, "authorize() 不能等网络（铁律 2）")
+  assert.match(inviteTicket.url, /\/register\?invite=ABCD1234$/)
+  assert.equal(inviteTicket.opened, true)
+  assert.equal(typeof inviteTicket.callback, "function")
+
+  // ③ 两条粘贴路：不要在 authorize 里做任何事
+  for (const method of methods.slice(2)) {
     assert.equal(method.type, "api")
     assert.equal(typeof method.label, "string")
     assert.equal(method.authorize, undefined)

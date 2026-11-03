@@ -190,7 +190,33 @@ POST /api/model-service/benefits/claim {"task":"message_wall"} → {reward:10000
   "reward": 0, "message": "已领 3，跳过 1" }
 ```
 
-## 10. 已知限制
+## 10. 邀请
+
+邀请码是**注册时**的参数，不是登录参数：
+
+```
+GET /api/invite                                  （Cookie）
+→ { "code": "ABCD9999",
+    "url": "https://opc.fiime.cn/register?invite=ABCD9999",
+    "uses": 0, "invitedCount": 0, "paidCount": 0,
+    "tokenRewardCount": 0, "tokenRewardTotal": 0 }
+```
+
+- `code`：自己的码（8 位）。重新生成是网页端的写操作（30 天一次），插件不替用户做。
+- `url`：完整邀请注册链接；注册页的表单字段名是 `inviteCode`（前端文案「邀请码（可选）」/
+  「若有邀请链接可填入」）。
+- `invitedCount` / `paidCount`：已邀请人数 / 付费转化；`tokenRewardCount` / `tokenRewardTotal`：
+  邀请奖励的次数与 Token 总数。
+- 注册成功后，`GET /api/auth/me` 的 `user.referralCode` 就是自己的码，`user.invitedAt` 是被邀请的时间。
+
+**在登录 URL 上带码没有任何效果**：`/zh-cn/login?invite=…` 与不带完全一样（实测）。
+所以插件的邀请码走注册页 URL：`register?invite=<code>` —— 见 `src/invite.mjs` 与 `index.mjs` 的
+「邀请码注册（隔离窗口）→ 自动登录」。留空就打开普通注册页，已有账号的人可以在那里直接登录。
+
+卡片上的「我的邀请码」一格来自同一个 `GET /api/invite`；只有 API Key 时读不到（401），
+这一格就不出现 —— 与「额度必须有 Cookie」是同一条原因。查找失败也不影响其它行。
+
+## 11. 已知限制
 
 - 站点不提供上下文窗口长度，`limit.context` 多数模型是省略的
 - 图像 / 视频生成模型没有接进 magpie 的供图通道（`DrawsID` / `ImagesAPI`），列进来会在 chat 里选中报错

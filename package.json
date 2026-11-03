@@ -1,6 +1,6 @@
 {
   "name": "magpie-opc-auth",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "magpie / OpenCode provider plugin for FiimeOPC (opc.fiime.cn): browser-cookie sign-in, Token wallet + daily quota card, daily check-in, and an OpenAI-compatible chat channel backed by the site's own API keys.",
   "type": "module",
   "main": "./index.mjs",

@@ -5,7 +5,7 @@
     "opc"
   ],
   "summary": {
-    "en": "Sign in to FiimeOPC (opc.fiime.cn) with an isolated browser window or a pasted cookie, see your Token wallet, daily quota and daily-task progress on the card, run the site's chat models through an OpenAI-compatible endpoint, and claim the daily check-in reward.",
-    "zh": "用隔离浏览器窗口（或粘贴 Cookie）登录 FiimeOPC（opc.fiime.cn），在卡片上看 Token 余额、每日用量与每日任务进度，通过 OpenAI 兼容端点跑站点自己的聊天模型，并一键完成每日签到。"
+    "en": "Sign in to FiimeOPC (opc.fiime.cn) with an isolated browser window, an invite-code registration flow or a pasted cookie, see your Token wallet, daily quota, daily-task progress and your own invite code on the card, run the site's chat models through an OpenAI-compatible endpoint, and claim the daily check-in reward.",
+    "zh": "用隔离浏览器窗口（或邀请码注册、粘贴 Cookie）登录 FiimeOPC（opc.fiime.cn），在卡片上看 Token 余额、每日用量、每日任务进度和自己的邀请码，通过 OpenAI 兼容端点跑站点自己的聊天模型，并一键完成每日签到。"
   }
 }

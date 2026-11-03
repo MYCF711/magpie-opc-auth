@@ -61,3 +61,48 @@ test("北京时间 0 点：ISO 正确，小时数向上取整且至少 1", () =>
   assert.equal(hoursUntilReset(Date.parse("2026-11-03T23:30:00+08:00")), 1)
   assert.equal(hoursUntilReset(Date.parse("2026-11-03T10:00:00+08:00")), 14)
 })
+
+// ── 邀请码那一格 ────────────────────────────────────────────────────
+//
+// `GET /api/invite` 是「有更好、没有也照样出卡」的只读信息：
+// 读到了就补一行文字，读不到（没有 cookie / 接口抖动）整格不出现，
+// 绝不能因为它少一行主要额度。
+
+test("邀请码：读到了就一行文字窗口，且不参与路由", () => {
+  const usage = buildUsage({
+    dashboard: { wallet, usage: { usedToday: 1_856, dailyLimit: 100_000_000 }, benefits: tasks },
+    me: { level: 1 },
+    invite: { code: "ABCD1234", invitedCount: 2, paidCount: 1, tokenRewardTotal: 20_000_000 },
+  })
+  const hit = usage.windows.find((w) => w.name === "邀请码")
+  assert.ok(hit, "有码时必须出现这一格")
+  assert.match(hit.display, /ABCD1234/)
+  assert.match(hit.display, /已邀 2/)
+  assert.match(hit.display, /付费 1/)
+  assert.equal(hit.aside, true, "不参与路由")
+  assert.equal(hit.text, true, "作为文字显示")
+  assert.equal(hit.balance, undefined, "不是额度窗口")
+})
+
+test("邀请码：没有码（或没登录）就整格消失，不留空行", () => {
+  const base = { wallet, usage: { usedToday: 1_856, dailyLimit: 100_000_000 }, benefits: tasks }
+  for (const invite of [undefined, null, {}, { code: "" }, { code: "   " }]) {
+    const usage = buildUsage({ dashboard: base, me: { level: 1 }, invite })
+    assert.equal(
+      usage.windows.some((w) => w.name === "邀请码"),
+      false,
+      `invite=${JSON.stringify(invite)} 时不该出现邀请码那一格`,
+    )
+  }
+})
+
+test("邀请码：没有邀请记录时只显示码，不编造统计", () => {
+  const usage = buildUsage({
+    dashboard: { wallet, usage: { usedToday: 1_856, dailyLimit: 100_000_000 }, benefits: tasks },
+    me: { level: 1 },
+    invite: { code: "ABCD1234" },
+  })
+  const hit = usage.windows.find((w) => w.name === "邀请码")
+  assert.equal(hit.display, "邀请码 ABCD1234")
+  assert.doesNotMatch(hit.display, /已邀|付费|奖励/)
+})

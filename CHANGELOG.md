@@ -3,6 +3,23 @@
 本文件记录这个插件的每个发布版本。格式照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号照 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## 0.1.1 — 2026-11-03
+
+补上邀请机制。本站的邀请码**只影响注册**（`/register?invite=<code>`），
+老账号在登录 URL 上带码没有任何效果（实测），所以这里走的是「先问码 → 带码注册 → 自动登录」。
+
+- **登录方式新增「邀请码注册（隔离窗口）→ 自动登录」**：先问「邀请人的码」，
+  用 `https://opc.fiime.cn/register?invite=<code>` 打开一次性 Chromium 窗口，
+  用户注册完由插件从 CDP 收下 Cookie；留空则打开普通注册页（已有账号可在这里直接登录）。
+  多步问答用 `ask()` 串起来 —— 静态 `prompts` 数组串不起「填码 → 主登录」（AGENTS 坑 26）。
+- **卡片新增「我的邀请码」一格**：`GET /api/invite` 读到的码 + 已邀请人数 / 付费转化 / Token 奖励；
+  只有码、没有邀请记录时只显示码，不编造统计；查不到（没有 Cookie / 接口抖动）就整格不出现，
+  不会因为一行只读信息影响主要额度。
+- **邀请码策略**：`~/.cache/magpie/opc-invite.json`（`0` / 留空 / `1` 沿用当前，其它当新码）；
+  换码时与该码配对的额外参数一起换，避免「填了码但邀请不生效」。
+  **不滚动**成自己账号的 `referralCode` —— 下次点这条登录方式时它要还是「邀请人的码」。
+- `src/invite.mjs` 从 `magpie-chatbox-ai` / `magpie-cnb-auth` 的通用模块拿过来，按本站语义改了注释与提示文案。
+
 ## 0.1.0 — 2026-11-03
 
 第一个版本。把这个站点现有的两块能力接进 magpie：

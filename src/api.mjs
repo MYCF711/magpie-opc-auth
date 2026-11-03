@@ -94,6 +94,54 @@ export async function fetchDashboard(cookie) {
   return res.data
 }
 
+/**
+ * 我的邀请码 + 邀请统计（只读）。
+ *
+ * 站点形状（实测 2026-11-03，`GET /api/invite`，Cookie 鉴权）：
+ *
+ *   { "code": "ELJQK8Q8",
+ *     "url": "https://opc.fiime.cn/register?invite=ELJQK8Q8",
+ *     "uses": 0, "invitedCount": 0, "paidCount": 0,
+ *     "tokenRewardCount": 0, "tokenRewardTotal": 0 }
+ *
+ * `url` 是完整的邀请注册链接 —— 邀请码**只影响注册**，登录时带不生效。
+ * 「重新生成邀请码」是网页端的写操作（30 天一次），插件不替用户做。
+ */
+export async function fetchInvite(cookie) {
+  const res = await webFetch("/api/invite", { cookie })
+  if (isLoginBroken(res.status, res.data)) {
+    throw Object.assign(new Error("读取邀请码时登录已失效"), {
+      signIn: "expired",
+      status: 401,
+      code: "sign_in_required",
+    })
+  }
+  if (res.status !== 200) {
+    throw Object.assign(new Error(`读取邀请码失败（HTTP ${res.status}）：${shortText(res.data)}`), {
+      status: res.status,
+      code: "upstream_error",
+    })
+  }
+  const d = res.data || {}
+  return {
+    code: String(d.code || ""),
+    url: String(d.url || ""),
+    uses: Number(d.uses) || 0,
+    invitedCount: Number(d.invitedCount) || 0,
+    paidCount: Number(d.paidCount) || 0,
+    tokenRewardCount: Number(d.tokenRewardCount) || 0,
+    tokenRewardTotal: Number(d.tokenRewardTotal) || 0,
+  }
+}
+
+/** 邀请注册链接：优先用站点给的 `url`，没有就按实测形状拼 */
+export function inviteRegisterUrl(code, url = "") {
+  const u = String(url ?? "").trim()
+  if (u) return u
+  const c = String(code ?? "").trim()
+  return c ? `${WEB_BASE}/register?invite=${encodeURIComponent(c)}` : `${WEB_BASE}/zh-cn/register`
+}
+
 /** 已有密钥列表（dashboard.keys 是权威来源，这里不另开接口） */
 export function keysOf(dashboard) {
   return Array.isArray(dashboard?.keys) ? dashboard.keys : []

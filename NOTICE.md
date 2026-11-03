@@ -25,5 +25,8 @@
   - `src/model-context.mjs`：查 `~/.cache/magpie/models.json` 的递归索引与 TTL 缓存模式
 - `magpie-loomy-auth` — https://github.com/MYCF711/magpie-loomy-auth
   - `tests/mount.test.mjs`：入口唯一函数导出 / 九钩子 / config / loader / usage 的挂载测试结构
+- `magpie-chatbox-ai` / `magpie-cnb-auth` — https://github.com/MYCF711/magpie-chatbox-ai
+  - `src/invite.mjs`：邀请码策略（`createInviteStore` / `resolveInvite` / `makeInviteMethod`）。
+    本站的码只在注册 URL 上生效，注释、提示文案与主登录的接法按这里重写。
 
 以上项目的版权归各自作者所有，按 MIT 许可使用。本项目自身同样以 MIT 许可发布，完整许可正文见 `LICENSE`。
