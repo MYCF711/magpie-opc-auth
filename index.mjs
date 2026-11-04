@@ -56,7 +56,8 @@ import {
   resolveAccount,
 } from "./src/credential.mjs"
 import { buildLoaderResult } from "./src/chat.mjs"
-import { buildModels, staticModels } from "./src/models.mjs"
+import { buildModels, keepUnknownModels, staticModels } from "./src/models.mjs"
+import { markRetired, readRetired, writeSnapshot } from "./src/store.mjs"
 import { buildUsage } from "./src/usage.mjs"
 import { doCheckin } from "./src/checkin.mjs"
 import { loginViaBrowser } from "./src/web-login.mjs"
@@ -343,7 +344,12 @@ export const OpcAuthPlugin = async (ctx, rawOptions) => {
 
       // ═══ ④ 请求接管 ═══════════════════════════════════════════════
       async loader(getAuth) {
-        return buildLoaderResult({ getAuth, options })
+        return buildLoaderResult({
+          getAuth,
+          options,
+          // 上游 404 + 网页 ⇒ 这个模型被下线了：记下来，下次目录钩子就不再列它
+          recordRetired: (accountKey, model) => markRetired(PROVIDER, accountKey, model),
+        })
       },
 
       // ═══ ⑤ 额度 ═══════════════════════════════════════════════════
@@ -423,8 +429,11 @@ export const OpcAuthPlugin = async (ctx, rawOptions) => {
       async models(provider, { auth } = {}) {
         const configured = provider?.models && typeof provider.models === "object" ? provider.models : {}
         const account = resolveAccount(auth, options)
+        const accountKey = account.uid || fingerprint(account.raw)
+        // 已确认下线的模型不能再列出来（它们请求一次就撞一次 404 网页）
+        const retired = readRetired(PROVIDER, accountKey)
 
-        if (!account.raw) return { ...staticModels(), ...configured }
+        if (!account.raw) return { ...staticModels(), ...keepUnknownModels(provider, {}, retired) }
 
         let list = null
         try {
@@ -438,7 +447,10 @@ export const OpcAuthPlugin = async (ctx, rawOptions) => {
           list = null
         }
 
-        return buildModels({ ...provider, models: configured }, { list })
+        // 目录快照给聊天通道用：上游回 HTML 404 时，靠它判断「这个模型是不是真下线了」
+        if (Array.isArray(list) && list.length) writeSnapshot(PROVIDER, list)
+
+        return buildModels({ ...provider, models: configured }, { list, retired })
       },
     },
 

@@ -3,6 +3,47 @@
 本文件记录这个插件的每个发布版本。格式照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号照 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## 0.1.6 — 2026-11-04
+
+**上游把网页当回复时不再冒充「API 回复」；`deepseek-v4-1-flash-1017` 已下线，从模型表移除**
+
+事故形态：经 magpie 网关调用 `opc/deepseek-v4-1-flash-1017`，报
+`404 Not Found: a web page, not an API reply: "OPC一人公司是什么意思？…"`。
+
+实测（2026-11-04，真实账号）定位到的根因**在站点侧，不在鉴权链路**：
+
+- 站点模型目录从 22 条变成 **21 条**，`deepseek-v4-1-flash-1017` 不在其中；
+  `POST /api/model-service/v1/chat/completions` 只要 `model` 不在目录里，
+  网关就回 **404 + 站点 SPA 的 HTML 落地页**（`content-type: text/html`，
+  `<title>OPC一人公司是什么意思？注册、运营与创业指南-FiimeOPC社区</title>`）
+- 同一把 key、同一个地址，`deepseek-v4-flash` / `deepseek-v4-pro` / `opc-txt-v1` 等
+  在线模型全部 **200**；假 key 回 401 JSON，无 key 回 401 JSON —— 鉴权与地址都没问题
+- 网页 cookie 与 API Key 都还有效（`/api/auth/me` 200、`/api/model-service` 200、
+  两把 key `status: active`、余额 7551 万 Token）
+
+改动：
+
+- **聊天通道加 fetch 包装**（`src/chat.mjs` 的 `createChatFetch`）：上游用网页代替
+  JSON/SSE 时，当场翻译成一条带 `status` + `code` + 人话的错误 ——
+  `401 → sign_in_required`（要人重新登录）、`404 → model_not_found`（只搁置这个模型）、
+  其他 `→ 502 upstream_error`。JSON / SSE 一律原样透传（不在 fetch 里读流）。
+  文案里带上「上游返回的网页标题」+「去哪个页面挑模型」，不再是营销页标题。
+- **静态模型表删掉 `deepseek-v4-1-flash-1017`**（`src/context.mjs` 的 `MODEL_SPECS`），
+  并注明「已下线，别按老清单加回来」；README 的模型表同步（22 条/17 text → 21 条/16 text）。
+- **记住「哪个模型已下线」**（`src/store.mjs` 的 `readRetired` / `markRetired`）：
+  只有「上游 404 + 网页」且「目录快照里查不到这个 id」才落标记，目录快照每次
+  成功拉取时由 `provider.models` 写入（`plugin-store-snapshot-opc.json`）——
+  抖动不会把好模型钉死。
+- **`buildModels` / `keepUnknownModels` 支持 `retired`**：已下线的 id 不再从
+  `providers.json` 里被「用户自己加的模型」那条路复列出来（那是 magpie 的文件，插件删不掉）。
+- 新增测试 `tests/chat-fetch.test.mjs`（12 条：三种网页形状、透传、UA、body 解析）、
+  `tests/models-retired.test.mjs`（7 条：静态表无下线模型、retired 过滤、三态降级）。
+  测试 92 → 111，全绿。
+
+⚠ 用户侧动作：`providers.json` 里选中的 `deepseek-v4-1-flash-1017` 需要在 magpie 的
+供应商编辑器里换成在线模型（`deepseek-v4-flash` / `deepseek-v4-pro` / `opc-txt-v1` …）。
+插件不改 magpie 的配置，只负责把它从目录与本插件的模型表里剔除。
+
 ## 0.1.5 — 2026-11-04
 
 **出站 UA 全部换成官方客户端 UA（同步脚手架 0.3.10 的坑表第 38 条）**

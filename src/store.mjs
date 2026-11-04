@@ -132,7 +132,34 @@ export function isSettled(siteId, account, kind = "once") {
 }
 
 /**
- * 清理：把某个 kind 下超过 keep 条的旧文件删掉。
+ * ④ 模型下线的标记 —— 「这个 id 上游已经不认了」。
+ *
+ * 为什么必须有：站点把模型从目录里删掉之后，`~/.config/magpie/providers.json` 里
+ * 用户选过的那一条**不会自动消失**（那是 magpie 的文件，插件只有读的份），
+ * 静态表也会把它列回来。没有这个标记，用户每次选中它就撞同一个 404，
+ * 而 404 的响应是站点的 HTML 落地页 —— 看起来像插件坏了。
+ *
+ * 形状：`{ at, reason, models: { "<model-id>": "<ISO 时间>" } }`
+ * 只记「上游明确 404 + 目录里查不到」的，目录里还在的一律不记（抖动不算下线）。
+ */
+export function readRetired(siteId, account) {
+  const stored = readJson(fileOf("retired", { siteId, account }), null)
+  const out = new Set()
+  for (const id of Object.keys(stored?.models || {})) if (id) out.add(String(id))
+  return out
+}
+
+export function markRetired(siteId, account, id, { reason = "upstream_404" } = {}) {
+  const key = String(id || "").trim()
+  if (!key) return readRetired(siteId, account)
+  const file = fileOf("retired", { siteId, account })
+  const stored = readJson(file, null) || {}
+  const models = { ...(stored.models || {}), [key]: new Date().toISOString() }
+  writeJson(file, { at: stored.at || new Date().toISOString(), reason, models })
+  return readRetired(siteId, account)
+}
+
+/** 清理：把某个 kind 下超过 keep 条的旧文件删掉。
  *
  * 为什么要：有的插件按日期落一堆文件（`...-2026-10-28.json`），
  * 一年就是 365 个。留个上限，别把用户的家目录当数据库。

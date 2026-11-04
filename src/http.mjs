@@ -118,6 +118,35 @@ export function abortSignal(signal, timeoutMs) {
 }
 
 /**
+ * 上游拿**网页**当 API 回复 —— 本站最迷惑人的一种失败。
+ *
+ * 实测（2026-11-04）：`POST /api/model-service/v1/chat/completions` 只要 `model`
+ * 不在站点的模型目录里，网关就回 **404 + 站点 SPA 的 HTML 落地页**（`text/html`，
+ * `<title>OPC一人公司是什么意思…</title>`）。宿主拿到它只能报
+ * 「404 Not Found: a web page, not an API reply」—— 用户看到的是营销页标题，
+ * 分不清是「模型下线了」「cookie 过期了」还是「地址写错了」。
+ *
+ * 所以聊天通道（src/chat.mjs 的 fetch 包装）在把响应交回宿主之前，先用这两个
+ * 函数认一遍：**是网页就翻译成一条带 status + code + 人话的错误**，不下传。
+ */
+export function looksLikeHtml(text) {
+  const head = String(text ?? "")
+    .replace(/^\uFEFF/, "")
+    .trimStart()
+    .slice(0, 512)
+    .toLowerCase()
+  if (!head) return false
+  return head.startsWith("<!doctype") || head.startsWith("<html") || head.startsWith("<head")
+}
+
+/** 从网页里挖出 `<title>`，给错误文案当「上游到底回了哪一页」的线索。 */
+export function htmlTitle(text, fallback = "") {
+  const m = String(text ?? "").match(/<title[^>]*>([\s\S]{0,300}?)<\/title>/i)
+  const title = m ? m[1].replace(/\s+/g, " ").trim() : ""
+  return title || fallback
+}
+
+/**
  * 上游 401/403 到底是不是「登录失效」？
  *
  * ⚠ 这是整份代码里最贵的一个判断：

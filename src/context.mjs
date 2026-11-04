@@ -28,7 +28,7 @@ export const SDK = "@ai-sdk/openai-compatible"
 /** 网页 cookie 的有效期（服务端不滑动续期，实测响应里没有 Set-Cookie） */
 export const COOKIE_TTL_MS = 7 * 24 * 3600_000
 
-export const PLUGIN_VERSION = "0.1.4"
+export const PLUGIN_VERSION = "0.1.6"
 
 /**
  * 请求必须带 UA：站点对 UA 敏感的接口会回「请求异常，请稍后再试」（`requireCaptcha`）。
@@ -70,10 +70,13 @@ export const ICON =
  * 按 CHECKLIST A-8「上下文窗口是实测值，不是猜的」，这里只声明已知的能力，
  * 窗口长度交给 `src/model-context.mjs` 从宿主缓存里查（查不到就不写）。
  *
+ * ⚠ 这张表是**未登录 / 目录拉不到**时的兜底，所以它只该列站点当前真的在服务的模型：
+ *   `deepseek-v4-1-flash-1017` 已于 2026-11-04 从站点目录下线（21 条里没有它，
+ *   请求它回 404 + 站点 HTML 落地页），已从本表删除 —— 别再按老清单加回来。
+ *
  * 字段：id / name / image（能不能收图，**必须写成布尔值**）/ toolcall / reasoning
  */
 export const MODEL_SPECS = Object.freeze([
-  { id: "deepseek-v4-1-flash-1017", name: "DeepSeek V4.1 Flash 1017", image: true, toolcall: true, reasoning: true },
   { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", image: true, toolcall: true, reasoning: true },
   { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", image: true, toolcall: true, reasoning: true },
   { id: "deepseek-v4-flash-0731", name: "DeepSeek V4 Flash 0731", image: true, toolcall: true, reasoning: true },
