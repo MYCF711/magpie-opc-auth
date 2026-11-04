@@ -18,7 +18,13 @@ GET /api/model-service/v1/models        带 Key     → 200 {"object":"list","da
 ```
 
 站点对 `User-Agent` 敏感：不带 UA 的请求会被判异常（`{"error":"请求异常，请稍后再试","requireCaptcha":true}`）。
-所以 `src/api.mjs` 的所有请求都带 `user-agent: magpie-opc-auth/<version>` 与 `referer`。
+所以 `src/api.mjs` 的所有请求都带 `user-agent` 与 `referer`。
+
+**UA 值必须是「官方客户端」的，不能是 `<产品名>/<版本号>`。** 上游网关按 `<product>/<version>`
+形态认「第三方客户端」，命中即回 `403 {"error_code":"TM.00000001","error_msg":"网络繁忙，请稍后重试"}`；
+不显式设 UA 时宿主会把 `magpie/<version>` 原样透传，同样命中。FiimeOPC 的官方客户端就是官方网页，
+所以 [`src/context.mjs`](../src/context.mjs) 的 `USER_AGENT` 是一条完整合法的 Chrome UA，
+全插件所有出站点（`webHeaders()` / `modelHeaders()` / loader）只引用这一个常量。
 
 ## 2. 额度字段
 

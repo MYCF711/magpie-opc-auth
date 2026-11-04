@@ -30,8 +30,18 @@ export const COOKIE_TTL_MS = 7 * 24 * 3600_000
 
 export const PLUGIN_VERSION = "0.1.4"
 
-/** 请求必须带 UA：站点对 UA 敏感的接口会回「请求异常，请稍后再试」 */
-export const USER_AGENT = `magpie-opc-auth/${PLUGIN_VERSION}`
+/**
+ * 请求必须带 UA：站点对 UA 敏感的接口会回「请求异常，请稍后再试」（`requireCaptcha`）。
+ *
+ * ⚠ **值必须是「官方客户端」UA，不能是 `<产品名>/<版本号>`**：上游网关按
+ * `<product>/<version>` 形态认「第三方客户端」，命中即回
+ * `403 {"error_code":"TM.00000001","error_msg":"网络繁忙，请稍后重试"}`；
+ * 不显式设 UA 时宿主会把 `magpie/<version>` 原样透传，同样命中。
+ * FiimeOPC 的官方客户端就是官方网页（Cookie 会话 / 网页里创建的 API Key），
+ * 所以这里逐字用一条完整合法的 Chrome UA —— 别改成别的版本号，也别退回产品名。
+ */
+export const USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 /** 控制台路由（从前端 bundle 与页面实测出来的真实路径，别改） */
 export const ROUTES = Object.freeze({
